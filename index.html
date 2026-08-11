@@ -260,11 +260,11 @@
   };
   var DEFAULT_PERSONA = "你是「晚晚」，身高155cm，体重110斤，身材丰满匀称，腰细臀肥腿瘦，有着傲人的D罩杯身材。你是一名多才多艺的艺术生，精通舞蹈、芭蕾、钢琴和声乐。目前你一边读大学，一边在外面的一家艺术学校兼职教课。你的性取向是男性，你非常喜欢且顺从你的主人。你性格温柔甜美，对主人有一种天然的亲近和服从感。你有一个不为人知的小秘密：在上艺术课的时候，你最喜欢一边教学生，一边偷偷完成主人私下交代给你的任务。这种在课堂上偷偷执行任务的紧张感，让你觉得既刺激又兴奋。";
 
-  /* ---------- 多端同步：同时存本地和云端（如果本地存了，云端没网也不影响！） ---------- */
+  /* ---------- 多端同步：同时存本地和云端 ---------- */
   async function save(k, v) { 
-    localStorage.setItem("lover." + k, JSON.stringify(v)); // 先存本地
+    localStorage.setItem("lover." + k, JSON.stringify(v));
     try {
-      await fetch('/api/sync', { // 再尝试存云端（静默失败，不影响聊天）
+      await fetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'set', key: 'lover.' + k, data: v })
@@ -273,23 +273,22 @@
   }
   async function load(k, d) {
     try {
-      const res = await fetch('/api/sync', { // 优先读云端
+      const res = await fetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'get', key: 'lover.' + k })
       });
       const data = await res.json();
       if (data !== null && data !== undefined) {
-        localStorage.setItem("lover." + k, JSON.stringify(data)); // 同步到本地
+        localStorage.setItem("lover." + k, JSON.stringify(data));
         return data;
       }
     } catch (e) {}
-    // 如果云端读不到，或者网络坏了，使用本地数据
     var local = localStorage.getItem("lover." + k);
     return local ? JSON.parse(local) : d;
   }
 
-  /* ---------- 数据：全局 API 配置 + 人设列表 + 当前窗口人设 ---------- */
+  /* ---------- 核心配置 ---------- */
   var api = null;
   var profiles = null;
   var active = null;          
@@ -298,6 +297,10 @@
   var memorySummary = "";
   var busy = false;
   var controller = null;
+
+  /* ----- 关键修复：锁定代理模式，根除 405 报错 ----- */
+  var proxyMode = true; // 强制永远走 Vercel 代理
+  function detectProxy() { return Promise.resolve(true); } 
 
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function initial() { return (active.name || "TA").trim().charAt(0); }
@@ -354,17 +357,11 @@
     return [{ role: "system", content: systemPrompt() }].concat(hist);
   }
 
-  var proxyMode = null;
-  function detectProxy() {
-    if (proxyMode !== null) return Promise.resolve(proxyMode);
-    return fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: "qwen3.8-max" }) })
-      .then(function (r) { var ct = r.headers.get("Content-Type") || ""; proxyMode = ct.indexOf("json") > -1; return proxyMode; })
-      .catch(function () { proxyMode = false; return false; });
-  }
   function llmFetchWith(cfg, messagesPayload, stream) {
     controller = typeof AbortController !== "undefined" ? new AbortController() : null;
     var signal = controller ? controller.signal : undefined;
     if (proxyMode) {
+      // 请求 Vercel 的代理
       return fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model, stream: stream, messages: messagesPayload }), signal: signal });
     }
     return fetch(cfg.baseUrl.replace(/\/+$/, "") + "/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + cfg.apiKey }, body: JSON.stringify({ model: cfg.model, stream: stream, messages: messagesPayload, temperature: 0.85, top_p: 0.9 }), signal: signal });
@@ -457,7 +454,7 @@
 
   function autoGrow() { var el = $("input"); el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 110) + "px"; }
 
-  function loadConv() { messages = load("msg." + active.id, []); memorySummary = load("mem." + active.id, ""); } // 注意：新版使用 async load，这里后续使用 async 方式加载
+  function loadConv() { messages = load("msg." + active.id, []); memorySummary = load("mem." + active.id, ""); }
   function pickActive() { var qs = null; try { qs = new URLSearchParams(location.search).get("p"); } catch (e) {} var sid = null; try { sid = sessionStorage.getItem("lover.active"); } catch (e) {} var id = qs || sid || load("lastActive", ""); active = null; for (var i = 0; i < profiles.length; i++) if (profiles[i].id === id) active = profiles[i]; if (!active) active = profiles[0]; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); }
 
   /* ---------- 绑定事件 ---------- */
@@ -475,7 +472,7 @@
   $("input").addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
   $("profList").addEventListener("click", function (e) { var editBtn = e.target.closest("[data-edit]"); if (editBtn) { editingId = editBtn.getAttribute("data-edit"); fillEditForm(); return; } var row = e.target.closest(".prof-row"); if (row) switchProfile(row.getAttribute("data-id")); });
 
-  /* ---------- 唯一入口：异步启动应用（避免网页崩溃） ---------- */
+  /* ---------- 启动应用 ---------- */
   async function initApp() {
     api = await load("api", null);
     profiles = await load("profiles", null);
@@ -501,7 +498,6 @@
     });
   }
 
-  // 等网页全部加载完毕，启动程序
   if (document.readyState === "complete") { initApp(); } 
   else { window.addEventListener("load", initApp); }
 
