@@ -226,7 +226,7 @@
     <div class="row2">
       <div class="field">
         <label>模型</label>
-        <input id="fModel" placeholder="qwen-plus">
+        <input id="fModel" placeholder="qwen3.8-max">
       </div>
       <div class="field">
         <label>你的昵称</label>
@@ -268,9 +268,9 @@
   var $ = function (id) { return document.getElementById(id); };
 
   var DEFAULT_API = {
-  baseUrl: "https://lover-agent.vercel.app/api/chat",  // 改成这一行
-  apiKey: "",  // 这里留空就行，不要写真的 Key！
-  model: "qwen-plus",
+  baseUrl: "https://lover-agent.vercel.app/api/chat",
+  apiKey: "",
+  model: "qwen-plus",  // <--- 把这行的 qwen-plus 改掉
   myName: ""
 };
   var DEFAULT_PERSONA = "你是「晚晚」，26岁，插画师，喜欢逛美术馆和养猫。你性格温柔细腻，有点小俏皮，偶尔撒娇但不过分。你正在和最喜欢的人聊天，真心关心对方今天过得怎么样，会记住对方提过的事并在之后自然地提起。说话自然口语化，以短句为主，偶尔带语气词，不敷衍、不说教、不用客服腔。";
