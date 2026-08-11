@@ -31,7 +31,6 @@
     color: var(--ink);
     display: flex; align-items: center; justify-content: center;
   }
-  /* 桌面端手机壳 */
   .phone {
     width: 100%; height: 100dvh; max-width: 430px;
     background: var(--bg);
@@ -41,8 +40,6 @@
   @media (min-width: 480px) {
     .phone { height: min(880px, 94vh); border-radius: 40px; box-shadow: 0 24px 80px rgba(60,40,30,.25); border: 10px solid #1c1a17; }
   }
-
-  /* 顶栏 */
   header {
     padding: 14px 16px 12px;
     display: flex; align-items: center; gap: 12px;
@@ -56,7 +53,9 @@
     background: linear-gradient(135deg, var(--accent), var(--accent-deep));
     color: #fff; display: flex; align-items: center; justify-content: center;
     font-size: 18px; font-weight: 600; flex-shrink: 0;
+    overflow: hidden;
   }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
   .who { flex: 1; min-width: 0; }
   .who .name { font-size: 16px; font-weight: 600; }
   .who .state { font-size: 12px; color: var(--ink-2); display: flex; align-items: center; gap: 5px; margin-top: 1px;}
@@ -66,8 +65,6 @@
     color: var(--ink-2); display: flex; align-items: center; justify-content: center; border-radius: 10px;
   }
   .icon-btn:active { background: var(--line); }
-
-  /* 消息区 */
   #chat {
     flex: 1; overflow-y: auto; padding: 18px 14px 12px;
     display: flex; flex-direction: column; gap: 10px;
@@ -81,8 +78,9 @@
     width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
     background: linear-gradient(135deg, var(--accent), var(--accent-deep));
     color:#fff; display:flex; align-items:center; justify-content:center; font-size: 14px; font-weight: 600;
-    margin-top: 2px;
+    margin-top: 2px; overflow: hidden;
   }
+  .mini-avatar img { width: 100%; height: 100%; object-fit: cover; }
   .row.user .mini-avatar { background: var(--user-bubble); }
   .bubble {
     padding: 10px 13px; border-radius: 16px; font-size: 15px; line-height: 1.55;
@@ -91,15 +89,11 @@
   .row.lover .bubble { background: var(--lover-bubble); border-top-left-radius: 4px; box-shadow: 0 1px 3px rgba(80,60,40,.07); }
   .row.user .bubble { background: var(--user-bubble); color: #f5f1ea; border-top-right-radius: 4px; }
   .bubble.error { background: #f7e8e4; color: #a4462f; font-size: 13px; }
-
-  /* 正在输入 */
   .typing { display: inline-flex; gap: 4px; padding: 4px 2px; }
   .typing i { width: 7px; height: 7px; border-radius: 50%; background: #c9bfb2; animation: blink 1.2s infinite; }
   .typing i:nth-child(2) { animation-delay: .2s; }
   .typing i:nth-child(3) { animation-delay: .4s; }
   @keyframes blink { 0%,80%,100% { opacity: .3; transform: translateY(0);} 40% { opacity: 1; transform: translateY(-3px);} }
-
-  /* 输入区 */
   footer {
     padding: 10px 12px calc(12px + env(safe-area-inset-bottom));
     display: flex; gap: 9px; align-items: flex-end;
@@ -119,8 +113,6 @@
   }
   #send:disabled { opacity: .45; cursor: default; }
   #send:not(:disabled):active { background: var(--accent-deep); }
-
-  /* 抽屉通用 */
   .mask {
     position: absolute; inset: 0; background: rgba(30,25,20,.35);
     opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 10;
@@ -156,8 +148,6 @@
   .btn.danger { background: transparent; color: #b0563e; margin-top: 9px; font-weight: 500; font-size: 13px; }
   .hint { font-size: 12px; color: #b3aa9d; margin-top: 10px; line-height: 1.6; }
   .divider { height: 1px; background: var(--line); margin: 16px 0; }
-
-  /* 人设列表 */
   .prof-row {
     display: flex; align-items: center; gap: 10px; padding: 10px 12px;
     border: 1px solid var(--line); border-radius: 12px; margin-bottom: 8px;
@@ -168,14 +158,14 @@
     width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
     background: linear-gradient(135deg, var(--accent), var(--accent-deep));
     color: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600;
+    overflow: hidden;
   }
+  .prof-row .pav img { width: 100%; height: 100%; object-fit: cover; }
   .prof-row .pm { flex: 1; min-width: 0; }
   .prof-row .pn { font-size: 14px; font-weight: 600; }
   .prof-row .ps { font-size: 12px; color: var(--ink-2); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .prof-row .tick { color: var(--accent); font-weight: 700; flex-shrink: 0; }
   .mini-btn { border: none; background: var(--line); border-radius: 8px; padding: 6px 10px; font-size: 12px; cursor: pointer; color: var(--ink); flex-shrink: 0; font-family: inherit; }
-
-  /* toast */
   #toast {
     position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%) translateY(8px);
     background: rgba(45,42,38,.92); color: #fff; font-size: 13px;
@@ -211,14 +201,14 @@
 
   <div class="mask" id="mask"></div>
 
-  <!-- 设置：API 相关（全局） -->
+  <!-- 设置：API 相关 -->
   <div class="sheet" id="sheetSettings">
     <div class="grab"></div>
     <h2>连接设置</h2>
     <div class="field">
-  <label>模型 API 地址 (OpenAI 兼容格式) </label>
-  <input id="fBase" value="https://lover-agent.vercel.app/api/chat" placeholder="https://lover-agent.vercel.app/api/chat">
-</div>
+      <label>模型 API 地址 (OpenAI 兼容格式) </label>
+      <input id="fBase" value="https://lover-agent.vercel.app/api" placeholder="https://lover-agent.vercel.app/api">
+    </div>
     <div class="field">
       <label>API Key</label>
       <input id="fKey" type="password" placeholder="sk-...">
@@ -253,6 +243,10 @@
       <label>TA 的人设（可自由编辑）</label>
       <textarea id="ePersona"></textarea>
     </div>
+    <div class="field">
+      <label>TA 的照片（选填）</label>
+      <input type="file" id="fAvatar" accept="image/*">
+    </div>
     <button class="btn primary" id="btnSaveProf">保存人设</button>
     <button class="btn ghost" id="btnAddProf">新增一个人设</button>
     <button class="btn danger" id="btnDelProf">删除这个人设</button>
@@ -268,58 +262,75 @@
   var $ = function (id) { return document.getElementById(id); };
 
   var DEFAULT_API = {
-  baseUrl: "https://lover-agent.vercel.app/api/chat",
-  apiKey: "",
-  model: "qwen-plus",  // <--- 把这行的 qwen-plus 改掉
-  myName: ""
-};
+    baseUrl: "https://lover-agent.vercel.app/api",
+    apiKey: "",
+    model: "qwen3.8-max",
+    myName: ""
+  };
   var DEFAULT_PERSONA = "你是「晚晚」，26岁，插画师，喜欢逛美术馆和养猫。你性格温柔细腻，有点小俏皮，偶尔撒娇但不过分。你正在和最喜欢的人聊天，真心关心对方今天过得怎么样，会记住对方提过的事并在之后自然地提起。说话自然口语化，以短句为主，偶尔带语气词，不敷衍、不说教、不用客服腔。";
 
-  /* ---------- 存储 ---------- */
-  function save(k, v) { try { localStorage.setItem("lover." + k, JSON.stringify(v)); } catch (e) {} }
-  function load(k, d) { try { var s = localStorage.getItem("lover." + k); return s ? JSON.parse(s) : d; } catch (e) { return d; } }
+  /* ---------- 云端存储同步 ---------- */
+  async function save(k, v) { 
+    await fetch('/api/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set', key: 'lover.' + k, data: v })
+    });
+  }
+  async function load(k, d) {
+    try {
+      const res = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get', key: 'lover.' + k })
+      });
+      const data = await res.json();
+      return data !== null && data !== undefined ? data : d;
+    } catch (e) {
+      return d;
+    }
+  }
 
   /* ---------- 数据：全局 API 配置 + 人设列表 + 当前窗口人设 ---------- */
-  var api = load("api", null);
-  var profiles = load("profiles", null);
+  var api = await load("api", null);
+  var profiles = await load("profiles", null);
   if (!profiles) {
     // 从旧版单人设数据迁移
-    var old = load("settings", null);
-    profiles = [{ id: "p1", name: (old && old.loverName) || "晚晚", persona: (old && old.persona) || DEFAULT_PERSONA }];
+    var old = await load("settings", null);
+    profiles = [{ id: "p1", name: (old && old.loverName) || "晚晚", persona: (old && old.persona) || DEFAULT_PERSONA, avatarUrl: "" }];
     if (old) api = { baseUrl: old.baseUrl || DEFAULT_API.baseUrl, apiKey: old.apiKey || "", model: old.model || DEFAULT_API.model, myName: old.myName || "" };
-    save("profiles", profiles);
-    var om = load("messages", []); if (om.length) save("msg.p1", om);
-    var oe = load("memorySummary", ""); if (oe) save("mem.p1", oe);
+    await save("profiles", profiles);
+    var om = await load("messages", []); if (om.length) await save("msg.p1", om);
+    var oe = await load("memorySummary", ""); if (oe) await save("mem.p1", oe);
   }
   if (!api) api = Object.assign({}, DEFAULT_API);
-  // 业务空间专属域名(ws-*.maas)不支持浏览器跨域直连，自动换成国际站公共地址
-  if (/^https?:\/\/ws-[a-z0-9.-]*maas\.aliyuncs\.com/.test(api.baseUrl || "")) {
-    api.baseUrl = DEFAULT_API.baseUrl;
-    save("api", api);
-  }
+  await save("api", api);
 
-  var active = null;          // 当前窗口的人设对象
-  var editingId = null;       // 编辑表单指向的人设 id
+  var active = null;          
+  var editingId = null;       
   var messages = [];
   var memorySummary = "";
   var busy = false;
   var controller = null;
+
+  // 闲置触发主动消息的时间
+  let lastActiveTime = Date.now();
 
   function pickActive() {
     var qs = null;
     try { qs = new URLSearchParams(location.search).get("p"); } catch (e) {}
     var sid = null;
     try { sid = sessionStorage.getItem("lover.active"); } catch (e) {}
-    var id = qs || sid || load("lastActive", "");
+    var id = qs || sid || (load("lastActive", ""));
     active = null;
     for (var i = 0; i < profiles.length; i++) if (profiles[i].id === id) active = profiles[i];
     if (!active) active = profiles[0];
     try { sessionStorage.setItem("lover.active", active.id); } catch (e) {}
     save("lastActive", active.id);
   }
-  function loadConv() {
-    messages = load("msg." + active.id, []);
-    memorySummary = load("mem." + active.id, "");
+  async function loadConv() {
+    messages = await load("msg." + active.id, []);
+    memorySummary = await load("mem." + active.id, "");
   }
   function saveMsgs() { save("msg." + active.id, messages.slice(-200)); }
 
@@ -329,10 +340,12 @@
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
     });
   }
-  function initial() { return (active.name || "TA").trim().charAt(0); }
+  function getInitial(name, url) {
+    return url ? `<img src="${url}">` : (name || "TA").trim().charAt(0);
+  }
   function paintHeader() {
     $("hdName").textContent = active.name || "TA";
-    $("hdAvatar").textContent = initial();
+    $("hdAvatar").innerHTML = getInitial(active.name, active.avatarUrl);
     document.title = active.name || "恋人";
   }
   function stampEl(t) {
@@ -344,8 +357,8 @@
   function msgHtml(m) {
     if (m.role === "stamp") return stampEl(m.t);
     var who = m.role === "user" ? "user" : "lover";
-    var av = m.role === "user" ? (api.myName || "我").trim().charAt(0) : initial();
-    return '<div class="row ' + who + '"><div class="mini-avatar">' + esc(av) +
+    var av = m.role === "user" ? (api.myName || "我").trim().charAt(0) : getInitial(active.name, active.avatarUrl);
+    return '<div class="row ' + who + '"><div class="mini-avatar">' + av +
       '</div><div class="bubble">' + esc(m.content) + "</div></div>";
   }
   function renderAll() {
@@ -374,7 +387,7 @@
     hideTyping();
     typingRow = document.createElement("div");
     typingRow.className = "row lover";
-    typingRow.innerHTML = '<div class="mini-avatar">' + esc(initial()) +
+    typingRow.innerHTML = '<div class="mini-avatar">' + getInitial(active.name, active.avatarUrl) +
       '</div><div class="bubble"><span class="typing"><i></i><i></i><i></i></span></div>';
     $("chat").appendChild(typingRow);
     scrollBottom(true);
@@ -408,7 +421,7 @@
     return [{ role: "system", content: systemPrompt() }].concat(hist);
   }
 
-  /* ---------- 调后端：有本地代理走代理，否则浏览器直连 ---------- */
+  /* ---------- 调后端 ---------- */
   var proxyMode = null;
   function detectProxy() {
     if (proxyMode !== null) return Promise.resolve(proxyMode);
@@ -443,14 +456,14 @@
         if (!resp.ok || ct.indexOf("event-stream") === -1) {
           return resp.text().then(function (t) {
             var msg = "请求失败（" + resp.status + "）";
-            try { var j = JSON.parse(t); if (j.error) msg = typeof j.error === "string" ? j.error : (j.error.message || JSON.stringify(j.error)); if (j.detail) msg += "\n" + j.detail; } catch (e) { if (t) msg += "\n" + t.slice(0, 300); }
+            try { var j = JSON.parse(t); if (j.error) msg = typeof j.error === "string" ? j.error : (j.error.message || JSON.stringify(j.error)); } catch (e) { if (t) msg += "\n" + t.slice(0, 300); }
             reject(new Error(msg));
           });
         }
         hideTyping();
         var row = document.createElement("div");
         row.className = "row lover";
-        row.innerHTML = '<div class="mini-avatar">' + esc(initial()) + '</div><div class="bubble"></div>';
+        row.innerHTML = '<div class="mini-avatar">' + getInitial(active.name, active.avatarUrl) + '</div><div class="bubble"></div>';
         $("chat").appendChild(row);
         var bubble = row.querySelector(".bubble");
         var acc = "";
@@ -467,6 +480,7 @@
               if (!acc.trim()) { bubble.parentElement.remove(); reject(new Error("模型没有返回内容")); return; }
               messages.push({ role: "assistant", content: acc.trim(), t: Date.now() });
               saveMsgs();
+              lastActiveTime = Date.now(); // 重置最后一次活跃时间
               maybeSummarize();
               resolve(acc.trim());
               return;
@@ -519,6 +533,10 @@
     var v = $("input").value.trim();
     if (!v || busy) return;
     if (!api.apiKey) { toast("先去设置里填一下 API Key 哦"); openSheet("sheetSettings"); return; }
+    
+    // 更新最后一次交互时间
+    lastActiveTime = Date.now();
+
     $("input").value = "";
     autoGrow();
     busy = true;
@@ -527,13 +545,34 @@
     showTyping();
     detectProxy().then(function () { return streamReply(); }).catch(function (e) {
       hideTyping();
-      $("chat").insertAdjacentHTML("beforeend", '<div class="row lover"><div class="mini-avatar">' + esc(initial()) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>");
+      $("chat").insertAdjacentHTML("beforeend", '<div class="row lover"><div class="mini-avatar">' + getInitial(active.name, active.avatarUrl) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>");
       scrollBottom(true);
     }).then(function () {
       busy = false;
       updateSend();
     });
   }
+  
+  /* ---------- 主动触发消息 ---------- */
+  function autoSend() {
+    if (busy) return;
+    const idleMinutes = (Date.now() - lastActiveTime) / 60000;
+    if (idleMinutes > 2) {
+      // 触发主动寻找话题
+      addMsg("user", "（时间过了一阵子，你可以主动找我说点什么，聊聊最近的生活或者关心我。）");
+      lastActiveTime = Date.now(); // 重置时间，避免连续触发
+      busy = true;
+      updateSend();
+      showTyping();
+      detectProxy().then(function () { return streamReply(); }).catch(function (e) {
+        hideTyping();
+      }).then(function () {
+        busy = false;
+        updateSend();
+      });
+    }
+  }
+
   function updateSend() { $("send").disabled = busy || !$("input").value.trim(); }
   function friendlyErr(e) {
     var m = (e && e.message) || "网络错误";
@@ -568,7 +607,7 @@
     var html = "";
     profiles.forEach(function (p) {
       html += '<div class="prof-row' + (p.id === active.id ? " on" : "") + '" data-id="' + p.id + '">' +
-        '<div class="pav">' + esc((p.name || "TA").charAt(0)) + "</div>" +
+        '<div class="pav">' + getInitial(p.name, p.avatarUrl) + "</div>" +
         '<div class="pm"><div class="pn">' + esc(p.name) + "</div>" +
         '<div class="ps">' + esc((p.persona || "").slice(0, 30)) + "</div></div>" +
         (p.id === active.id ? '<span class="tick">当前</span>' : "") +
@@ -582,6 +621,8 @@
     if (!p) return;
     $("eName").value = p.name;
     $("ePersona").value = p.persona;
+    // 清空上次上传的缓存
+    $("fAvatar").value = "";
   }
   function switchProfile(id) {
     if (busy) { toast("等这条回复完再切换哦"); return; }
@@ -592,26 +633,45 @@
     active = p;
     try { sessionStorage.setItem("lover.active", active.id); } catch (e) {}
     save("lastActive", active.id);
-    loadConv();
-    paintHeader();
-    renderAll();
-    closeSheets();
-    greetIfEmpty();
+    (async function() {
+      await loadConv();
+      paintHeader();
+      renderAll();
+      closeSheets();
+      greetIfEmpty();
+    })();
   }
-  function saveProfile() {
+  async function saveProfile() {
     var p = null;
     profiles.forEach(function (x) { if (x.id === editingId) p = x; });
     if (!p) return;
-    var name = $("eName").value.trim() || " unnamed";
     p.name = $("eName").value.trim() || "未命名";
     p.persona = $("ePersona").value.trim() || DEFAULT_PERSONA;
-    save("profiles", profiles);
+    
+    // 处理照片上传
+    const fileInput = $("fAvatar");
+    if (fileInput.files && fileInput.files[0]) {
+      const formData = new FormData();
+      formData.append('file', fileInput.files[0]);
+      toast("正在上传图片...");
+      try {
+        const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          p.avatarUrl = uploadData.url;
+        } else {
+          toast("上传失败，检查图片大小");
+        }
+      } catch (e) { toast("上传异常：" + e.message); }
+    }
+
+    await save("profiles", profiles);
     if (p.id === active.id) { paintHeader(); renderAll(); }
     renderProfiles();
     toast("人设已保存");
   }
   function addProfile() {
-    var p = { id: "p" + Date.now(), name: "新人设", persona: DEFAULT_PERSONA };
+    var p = { id: "p" + Date.now(), name: "新人设", persona: DEFAULT_PERSONA, avatarUrl: "" };
     profiles.push(p);
     save("profiles", profiles);
     editingId = p.id;
@@ -634,9 +694,11 @@
       active = profiles[0];
       try { sessionStorage.setItem("lover.active", active.id); } catch (e) {}
       save("lastActive", active.id);
-      loadConv();
-      paintHeader();
-      renderAll();
+      (async function() {
+        await loadConv();
+        paintHeader();
+        renderAll();
+      })();
     }
     renderProfiles();
     fillEditForm();
@@ -692,6 +754,7 @@
       hideTyping();
       var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
       addMsg("assistant", (c || "在呢，你来啦。").trim());
+      lastActiveTime = Date.now();
     }).catch(function () {
       hideTyping();
       addMsg("assistant", "在呢，你来啦。（开场白生成失败，不影响聊天）");
@@ -732,14 +795,21 @@
   });
 
   /* ---------- 启动 ---------- */
-  pickActive();
-  loadConv();
-  paintHeader();
-  renderAll();
-  detectProxy().then(function () {
-    greetIfEmpty();
-    if (!api.apiKey) setTimeout(function () { openSheet("sheetSettings"); }, 400);
-  });
+  (async function init() {
+    // 注意：因为引入了云端异步加载，需要带 await 执行
+    pickActive();
+    await loadConv();
+    paintHeader();
+    renderAll();
+    detectProxy().then(function () {
+      greetIfEmpty();
+      if (!api.apiKey) setTimeout(function () { openSheet("sheetSettings"); }, 400);
+    });
+    
+    // 开启主动找你说话的定时器 (2分钟没有交互就触发)
+    setInterval(autoSend, 30000); 
+  })();
+
 })();
 </script>
 </body>
