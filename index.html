@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>恋人</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon.png">
+<meta name="theme-color" content="#faf6f1">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="恋人">
+<style>
+  :root {
+    --bg: #faf6f1;
+    --panel: #ffffff;
+    --ink: #2d2a26;
+    --ink-2: #8a8378;
+    --line: #ece5db;
+    --accent: #b5838d;
+    --accent-deep: #96616e;
+    --user-bubble: #3a352f;
+    --lover-bubble: #ffffff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(160deg, #efe7dd 0%, #e8dcd3 100%);
+    color: var(--ink);
+    display: flex; align-items: center; justify-content: center;
+  }
+  /* 桌面端手机壳 */
+  .phone {
+    width: 100%; height: 100dvh; max-width: 430px;
+    background: var(--bg);
+    display: flex; flex-direction: column;
+    position: relative; overflow: hidden;
+  }
+  @media (min-width: 480px) {
+    .phone { height: min(880px, 94vh); border-radius: 40px; box-shadow: 0 24px 80px rgba(60,40,30,.25); border: 10px solid #1c1a17; }
+  }
+
+  /* 顶栏 */
+  header {
+    padding: 14px 16px 12px;
+    display: flex; align-items: center; gap: 12px;
+    background: rgba(250,246,241,.92); backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+    z-index: 5;
+  }
+  .avatar {
+    width: 42px; height: 42px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+    color: #fff; display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 600; flex-shrink: 0;
+  }
+  .who { flex: 1; min-width: 0; }
+  .who .name { font-size: 16px; font-weight: 600; }
+  .who .state { font-size: 12px; color: var(--ink-2); display: flex; align-items: center; gap: 5px; margin-top: 1px;}
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: #7fae7a; }
+  .icon-btn {
+    width: 36px; height: 36px; border: none; background: transparent; cursor: pointer;
+    color: var(--ink-2); display: flex; align-items: center; justify-content: center; border-radius: 10px;
+  }
+  .icon-btn:active { background: var(--line); }
+
+  /* 消息区 */
+  #chat {
+    flex: 1; overflow-y: auto; padding: 18px 14px 12px;
+    display: flex; flex-direction: column; gap: 10px;
+    scroll-behavior: smooth;
+  }
+  .stamp { text-align: center; font-size: 11px; color: #b3aa9d; margin: 6px 0 2px; }
+  .row { display: flex; gap: 9px; max-width: 88%; animation: rise .22s ease; }
+  .row.user { align-self: flex-end; flex-direction: row-reverse; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px);} to { opacity: 1; transform: none;} }
+  .mini-avatar {
+    width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+    background: linear-gradient(135deg, var(--accent), var(--accent-deep));
+    color:#fff; display:flex; align-items:center; justify-content:center; font-size: 14px; font-weight: 600;
+    margin-top: 2px;
+  }
+  .row.user .mini-avatar { background: var(--user-bubble); }
+  .bubble {
+    padding: 10px 13px; border-radius: 16px; font-size: 15px; line-height: 1.55;
+    word-break: break-word; white-space: pre-wrap;
+  }
+  .row.lover .bubble { background: var(--lover-bubble); border-top-left-radius: 4px; box-shadow: 0 1px 3px rgba(80,60,40,.07); }
+  .row.user .bubble { background: var(--user-bubble); color: #f5f1ea; border-top-right-radius: 4px; }
+  .bubble.error { background: #f7e8e4; color: #a4462f; font-size: 13px; }
+
+  /* 正在输入 */
+  .typing { display: inline-flex; gap: 4px; padding: 4px 2px; }
+  .typing i { width: 7px; height: 7px; border-radius: 50%; background: #c9bfb2; animation: blink 1.2s infinite; }
+  .typing i:nth-child(2) { animation-delay: .2s; }
+  .typing i:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%,80%,100% { opacity: .3; transform: translateY(0);} 40% { opacity: 1; transform: translateY(-3px);} }
+
+  /* 输入区 */
+  footer {
+    padding: 10px 12px calc(12px + env(safe-area-inset-bottom));
+    display: flex; gap: 9px; align-items: flex-end;
+    background: rgba(250,246,241,.95); border-top: 1px solid var(--line);
+  }
+  #input {
+    flex: 1; border: 1px solid var(--line); background: #fff; border-radius: 22px;
+    padding: 10px 15px; font-size: 15px; outline: none; resize: none;
+    max-height: 110px; line-height: 1.45; font-family: inherit; color: var(--ink);
+  }
+  #input:focus { border-color: var(--accent); }
+  #send {
+    width: 42px; height: 42px; border-radius: 50%; border: none; cursor: pointer;
+    background: var(--accent); color: #fff; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s, opacity .15s;
+  }
+  #send:disabled { opacity: .45; cursor: default; }
+  #send:not(:disabled):active { background: var(--accent-deep); }
+
+  /* 设置页 */
+  .mask {
+    position: absolute; inset: 0; background: rgba(30,25,20,.35);
+    opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 10;
+  }
+  .mask.show { opacity: 1; pointer-events: auto; }
+  .sheet {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 11;
+    background: var(--panel); border-radius: 22px 22px 0 0;
+    padding: 18px 18px calc(24px + env(safe-area-inset-bottom));
+    transform: translateY(105%); transition: transform .28s cubic-bezier(.32,.72,.25,1);
+    max-height: 88%; overflow-y: auto;
+  }
+  .sheet.show { transform: none; }
+  .grab { width: 38px; height: 4px; border-radius: 2px; background: var(--line); margin: 0 auto 14px; }
+  .sheet h2 { font-size: 17px; margin-bottom: 14px; }
+  .field { margin-bottom: 13px; }
+  .field label { display: block; font-size: 13px; color: var(--ink-2); margin-bottom: 5px; }
+  .field input, .field textarea {
+    width: 100%; border: 1px solid var(--line); border-radius: 11px; background: #fbf9f6;
+    padding: 9px 12px; font-size: 14px; outline: none; font-family: inherit; color: var(--ink);
+  }
+  .field textarea { min-height: 96px; resize: vertical; line-height: 1.5; }
+  .field input:focus, .field textarea:focus { border-color: var(--accent); }
+  .row2 { display: flex; gap: 10px; }
+  .row2 .field { flex: 1; }
+  .btn {
+    display: block; width: 100%; padding: 12px; border-radius: 13px; border: none;
+    font-size: 15px; font-weight: 600; cursor: pointer; font-family: inherit;
+  }
+  .btn.primary { background: var(--accent); color: #fff; margin-top: 4px; }
+  .btn.primary:active { background: var(--accent-deep); }
+  .btn.ghost { background: #f4efe8; color: var(--ink); margin-top: 9px; }
+  .btn.danger { background: transparent; color: #b0563e; margin-top: 9px; font-weight: 500; font-size: 13px; }
+  .hint { font-size: 12px; color: #b3aa9d; margin-top: 10px; line-height: 1.6; }
+
+  /* toast */
+  #toast {
+    position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%) translateY(8px);
+    background: rgba(45,42,38,.92); color: #fff; font-size: 13px;
+    padding: 9px 16px; border-radius: 20px; opacity: 0; pointer-events: none;
+    transition: all .25s; z-index: 20; max-width: 82%; text-align: center;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%); }
+</style>
+</head>
+<body>
+<div class="phone">
+  <header>
+    <div class="avatar" id="hdAvatar">晚</div>
+    <div class="who">
+      <div class="name" id="hdName">晚晚</div>
+      <div class="state"><span class="dot"></span><span id="hdState">在线</span></div>
+    </div>
+    <button class="icon-btn" id="btnSettings" aria-label="设置">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+  </header>
+
+  <div id="chat"></div>
+
+  <footer>
+    <textarea id="input" rows="1" placeholder="说点什么…"></textarea>
+    <button id="send" disabled aria-label="发送">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>
+    </button>
+  </footer>
+
+  <div class="mask" id="mask"></div>
+  <div class="sheet" id="sheet">
+    <div class="grab"></div>
+    <h2>设置</h2>
+    <div class="field">
+      <label>模型 API 地址（OpenAI 兼容格式）</label>
+      <input id="fBase" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1">
+    </div>
+    <div class="field">
+      <label>API Key</label>
+      <input id="fKey" type="password" placeholder="sk-...">
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label>模型</label>
+        <input id="fModel" placeholder="qwen-plus">
+      </div>
+      <div class="field">
+        <label>你的昵称</label>
+        <input id="fMyName" placeholder="怎么称呼你">
+      </div>
+    </div>
+    <div class="field">
+      <label>TA 的名字</label>
+      <input id="fLoverName" placeholder="晚晚">
+    </div>
+    <div class="field">
+      <label>TA 的人设（可自由编辑）</label>
+      <textarea id="fPersona"></textarea>
+    </div>
+    <button class="btn primary" id="btnSave">保存</button>
+    <button class="btn ghost" id="btnTest">测试连接</button>
+    <button class="btn danger" id="btnClear">清空聊天记录与记忆</button>
+    <div class="hint">API Key 只保存在你本机浏览器里，不会上传。兼容任何 OpenAI 格式的接口：通义百炼 DashScope、OpenAI、DeepSeek、Moonshot 等。<br>手机使用：在同一 Wi-Fi 下用浏览器打开本机地址， Safari 分享 →「添加到主屏幕」 /  Chrome 菜单 →「添加到主屏幕」，即可像 App 一样全屏打开。</div>
+  </div>
+
+  <div id="toast"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+
+  var DEFAULTS = {
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    apiKey: "",
+    model: "qwen-plus",
+    myName: "",
+    loverName: "晚晚",
+    persona: "你是「晚晚」，26岁，插画师，喜欢逛美术馆和养猫。你性格温柔细腻，有点小俏皮，偶尔撒娇但不过分。你正在和最喜欢的人聊天，真心关心对方今天过得怎么样，会记住对方提过的事并在之后自然地提起。说话自然口语化，以短句为主，偶尔带语气词，不敷衍、不说教、不用客服腔。"
+  };
+
+  var settings = load("settings", Object.assign({}, DEFAULTS));
+  var messages = load("messages", []);
+  var memorySummary = load("memorySummary", "");
+  var busy = false;
+  var controller = null;
+
+  /* ---------- 存储（预览环境可能禁用，降级为内存） ---------- */
+  function save(k, v) { try { localStorage.setItem("lover." + k, JSON.stringify(v)); } catch (e) {} }
+  function load(k, d) { try { var s = localStorage.getItem("lover." + k); return s ? JSON.parse(s) : d; } catch (e) { return d; } }
+
+  /* ---------- 渲染 ---------- */
+  function esc(s) {
+    return s.replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function initial() { return (settings.loverName || "TA").trim().charAt(0); }
+  function paintHeader() {
+    $("hdName").textContent = settings.loverName || "TA";
+    $("hdAvatar").textContent = initial();
+    document.title = settings.loverName || "恋人";
+  }
+  function stampEl(t) {
+    var d = new Date(t), now = new Date();
+    var hm = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+    var label = d.toDateString() === now.toDateString() ? hm : (d.getMonth() + 1) + "月" + d.getDate() + "日 " + hm;
+    return '<div class="stamp">' + label + "</div>";
+  }
+  function msgHtml(m) {
+    if (m.role === "stamp") return stampEl(m.t);
+    var who = m.role === "user" ? "user" : "lover";
+    var av = m.role === "user" ? (settings.myName || "我").trim().charAt(0) : initial();
+    return '<div class="row ' + who + '"><div class="mini-avatar">' + esc(av) +
+      '</div><div class="bubble">' + esc(m.content) + "</div></div>";
+  }
+  function renderAll() {
+    $("chat").innerHTML = messages.map(msgHtml).join("");
+    scrollBottom(false);
+  }
+  function scrollBottom(smooth) {
+    var c = $("chat");
+    c.scrollTo({ top: c.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+  }
+  function addMsg(role, content) {
+    var last = messages[messages.length - 1];
+    if (!last || Date.now() - (last.t || 0) > 10 * 60 * 1000) {
+      messages.push({ role: "stamp", t: Date.now() });
+    }
+    var m = { role: role, content: content, t: Date.now() };
+    messages.push(m);
+    renderAll();
+    save("messages", messages.slice(-200));
+    return m;
+  }
+
+  /* ---------- 提示条 ---------- */
+  var typingRow = null;
+  function showTyping() {
+    hideTyping();
+    typingRow = document.createElement("div");
+    typingRow.className = "row lover";
+    typingRow.innerHTML = '<div class="mini-avatar">' + esc(initial()) +
+      '</div><div class="bubble"><span class="typing"><i></i><i></i><i></i></span></div>';
+    $("chat").appendChild(typingRow);
+    scrollBottom(true);
+  }
+  function hideTyping() { if (typingRow) { typingRow.remove(); typingRow = null; } }
+
+  var toastTimer = null;
+  function toast(s) {
+    var t = $("toast");
+    t.textContent = s;
+    t.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2600);
+  }
+
+  /* ---------- 组装发给模型的 messages ---------- */
+  function systemPrompt() {
+    var now = new Date();
+    var p = settings.persona || DEFAULTS.persona;
+    p += "\n\n【对话设定】对方的昵称是「" + (settings.myName || "亲爱的") + "」，你可以自然地称呼TA。";
+    p += "现在是" + now.getFullYear() + "年" + (now.getMonth() + 1) + "月" + now.getDate() + "日" +
+      ["周日","周一","周二","周三","周四","周五","周六"][now.getDay()] +
+      ("0" + now.getHours()).slice(-2) + ":" + ("0" + now.getMinutes()).slice(-2) + "，请贴合当前时间语境聊天。";
+    if (memorySummary) p += "\n\n【你们之前的相处记忆摘要】" + memorySummary;
+    return p;
+  }
+  function apiMessages(extra) {
+    var hist = messages.filter(function (m) { return m.role === "user" || m.role === "assistant"; })
+      .slice(-30)
+      .map(function (m) { return { role: m.role, content: m.content }; });
+    return [{ role: "system", content: systemPrompt() }].concat(hist, extra || []);
+  }
+
+  /* ---------- 调后端：有本地代理走代理，否则浏览器直连 ---------- */
+  var proxyMode = null;
+  function detectProxy() {
+    if (proxyMode !== null) return Promise.resolve(proxyMode);
+    return fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+      .then(function (r) { var ct = r.headers.get("Content-Type") || ""; proxyMode = ct.indexOf("json") > -1; return proxyMode; })
+      .catch(function () { proxyMode = false; return false; });
+  }
+  function llmFetchWith(cfg, messages, stream) {
+    controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var signal = controller ? controller.signal : undefined;
+    if (proxyMode) {
+      return fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model, stream: stream, messages: messages }),
+        signal: signal
+      });
+    }
+    return fetch(cfg.baseUrl.replace(/\/+$/, "") + "/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + cfg.apiKey },
+      body: JSON.stringify({ model: cfg.model, stream: stream, messages: messages, temperature: 0.85, top_p: 0.9 }),
+      signal: signal
+    });
+  }
+  function llmFetch(messages, stream) { return llmFetchWith(settings, messages, stream); }
+
+  function streamReply() {
+    return new Promise(function (resolve, reject) {
+      llmFetch(apiMessages(), true).then(function (resp) {
+        var ct = resp.headers.get("Content-Type") || "";
+        if (!resp.ok || ct.indexOf("event-stream") === -1) {
+          return resp.text().then(function (t) {
+            var msg = "请求失败（" + resp.status + "）";
+            try { var j = JSON.parse(t); if (j.error) msg = typeof j.error === "string" ? j.error : (j.error.message || JSON.stringify(j.error)); if (j.detail) msg += "\n" + j.detail; } catch (e) { if (t) msg += "\n" + t.slice(0, 300); }
+            reject(new Error(msg));
+          });
+        }
+        hideTyping();
+        var row = document.createElement("div");
+        row.className = "row lover";
+        row.innerHTML = '<div class="mini-avatar">' + esc(initial()) + '</div><div class="bubble"></div>';
+        $("chat").appendChild(row);
+        var bubble = row.querySelector(".bubble");
+        var acc = "";
+        var c = messages.filter(function (m) { return m.role === "stamp"; });
+        if (!c.length || Date.now() - c[c.length - 1].t > 10 * 60 * 1000) {
+          messages.push({ role: "stamp", t: Date.now() });
+        }
+        var reader = resp.body.getReader();
+        var decoder = new TextDecoder("utf-8");
+        var buf = "";
+        function pump() {
+          reader.read().then(function (r) {
+            if (r.done) {
+              if (!acc.trim()) { bubble.parentElement.remove(); reject(new Error("模型没有返回内容")); return; }
+              messages.push({ role: "assistant", content: acc.trim(), t: Date.now() });
+              save("messages", messages.slice(-200));
+              maybeSummarize();
+              resolve(acc.trim());
+              return;
+            }
+            buf += decoder.decode(r.value, { stream: true });
+            var lines = buf.split("\n");
+            buf = lines.pop();
+            lines.forEach(function (line) {
+              line = line.trim();
+              if (line.indexOf("data:") !== 0) return;
+              var data = line.slice(5).trim();
+              if (data === "[DONE]") return;
+              try {
+                var j = JSON.parse(data);
+                var delta = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
+                if (delta) {
+                  acc += delta;
+                  bubble.textContent = acc;
+                  scrollBottom(true);
+                }
+              } catch (e) {}
+            });
+            pump();
+          }).catch(reject);
+        }
+        pump();
+      }).catch(function (e) {
+        if (e.name === "AbortError") { resolve(""); } else { reject(e); }
+      });
+    });
+  }
+
+  /* ---------- 长期记忆：历史太长时自动摘要 ---------- */
+  function maybeSummarize() {
+    var hist = messages.filter(function (m) { return m.role === "user" || m.role === "assistant"; });
+    if (hist.length < 40) return;
+    var old = hist.slice(0, hist.length - 20);
+    var text = old.map(function (m) { return (m.role === "user" ? settings.myName || "我" : settings.loverName) + "：" + m.content; }).join("\n");
+    llmFetch([
+      { role: "system", content: "你是记忆整理助手。把下面的聊天记录压缩成不超过150字的第三人称摘要，只保留事实性信息（对方的身份、喜好、约定、近期发生的事），不要抒情。" },
+      { role: "user", content: text }
+    ], false).then(function (r) { return r.json(); }).then(function (j) {
+      var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+      if (c) { memorySummary = c.trim(); save("memorySummary", memorySummary); }
+    }).catch(function () {});
+  }
+
+  /* ---------- 发送 ---------- */
+  function send() {
+    var v = $("input").value.trim();
+    if (!v || busy) return;
+    if (!settings.apiKey) { toast("先去设置里填一下 API Key 哦"); openSheet(); return; }
+    $("input").value = "";
+    autoGrow();
+    busy = true;
+    updateSend();
+    addMsg("user", v);
+    showTyping();
+    detectProxy().then(function () { return streamReply(); }).catch(function (e) {
+      hideTyping();
+      $("chat").insertAdjacentHTML("beforeend", '<div class="row lover"><div class="mini-avatar">' + esc(initial()) + '</div><div class="bubble error">' + esc(e.message) + "</div></div>");
+      scrollBottom(true);
+    }).then(function () {
+      busy = false;
+      updateSend();
+    });
+  }
+
+  function updateSend() { $("send").disabled = busy || !$("input").value.trim(); }
+
+  /* ---------- 设置页 ---------- */
+  function openSheet() {
+    $("fBase").value = settings.baseUrl;
+    $("fKey").value = settings.apiKey;
+    $("fModel").value = settings.model;
+    $("fMyName").value = settings.myName;
+    $("fLoverName").value = settings.loverName;
+    $("fPersona").value = settings.persona;
+    $("mask").classList.add("show");
+    $("sheet").classList.add("show");
+  }
+  function closeSheet() {
+    $("mask").classList.remove("show");
+    $("sheet").classList.remove("show");
+  }
+  function saveSheet() {
+    settings.baseUrl = $("fBase").value.trim() || DEFAULTS.baseUrl;
+    settings.apiKey = $("fKey").value.trim();
+    settings.model = $("fModel").value.trim() || DEFAULTS.model;
+    settings.myName = $("fMyName").value.trim();
+    settings.loverName = $("fLoverName").value.trim() || DEFAULTS.loverName;
+    settings.persona = $("fPersona").value.trim() || DEFAULTS.persona;
+    save("settings", settings);
+    paintHeader();
+    renderAll();
+    closeSheet();
+    toast("已保存");
+  }
+  function testConn() {
+    var base = $("fBase").value.trim() || DEFAULTS.baseUrl;
+    var key = $("fKey").value.trim();
+    var model = $("fModel").value.trim() || DEFAULTS.model;
+    if (!key) { toast("先填 API Key"); return; }
+    toast("测试中…");
+    llmFetchWith({ baseUrl: base, apiKey: key, model: model },
+      [{ role: "user", content: "连通性测试，请回复：在的" }], false
+    ).then(function (r) { return r.json(); }).then(function (j) {
+      if (j.error) { toast("连接失败：" + (typeof j.error === "string" ? j.error : (j.error.message || JSON.stringify(j.error)))); return; }
+      var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+      toast(c ? "连接成功，TA 说：" + c.slice(0, 30) : "连接成功");
+    }).catch(function () { toast("连接失败：检查网络、API 地址或 Key"); });
+  }
+  function clearAll() {
+    if (!confirm("确定清空所有聊天记录和记忆吗？")) return;
+    messages = [];
+    memorySummary = "";
+    save("messages", messages);
+    save("memorySummary", "");
+    renderAll();
+    greet();
+    closeSheet();
+  }
+
+  /* ---------- 开场白 ---------- */
+  function greet() {
+    if (messages.some(function (m) { return m.role === "assistant"; })) return;
+    if (!settings.apiKey) {
+      addMsg("assistant", "（设置好 API Key 之后，我就能开始陪你聊天啦。点右上角的齿轮。）");
+      return;
+    }
+    busy = true; updateSend(); showTyping();
+    var payload = [{ role: "system", content: systemPrompt() },
+      { role: "user", content: "（这是我们的第一句对话，请你主动打个招呼，自然一点，别太长。）" }];
+    detectProxy().then(function () { return llmFetch(payload, false); }).then(function (r) { return r.json(); }).then(function (j) {
+      hideTyping();
+      var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+      addMsg("assistant", (c || "在呢，你来啦。").trim());
+    }).catch(function () {
+      hideTyping();
+      addMsg("assistant", "在呢，你来啦。（开场白生成失败，不影响聊天）");
+    }).then(function () { busy = false; updateSend(); });
+  }
+
+  /* ---------- 输入框自适应 ---------- */
+  function autoGrow() {
+    var el = $("input");
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 110) + "px";
+  }
+
+  /* ---------- 事件 ---------- */
+  $("btnSettings").addEventListener("click", openSheet);
+  $("mask").addEventListener("click", closeSheet);
+  $("btnSave").addEventListener("click", saveSheet);
+  $("btnTest").addEventListener("click", testConn);
+  $("btnClear").addEventListener("click", clearAll);
+  $("send").addEventListener("click", send);
+  $("input").addEventListener("input", function () { autoGrow(); updateSend(); });
+  $("input").addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+  });
+
+  /* ---------- 启动 ---------- */
+  paintHeader();
+  renderAll();
+  detectProxy().then(function () {
+    greet();
+    if (!settings.apiKey) setTimeout(openSheet, 400);
+  });
+})();
+</script>
+</body>
+</html>
