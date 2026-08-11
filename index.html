@@ -357,7 +357,7 @@
   var proxyMode = null;
   function detectProxy() {
     if (proxyMode !== null) return Promise.resolve(proxyMode);
-    return fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+    return fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: "qwen3.8-max" }) })
       .then(function (r) { var ct = r.headers.get("Content-Type") || ""; proxyMode = ct.indexOf("json") > -1; return proxyMode; })
       .catch(function () { proxyMode = false; return false; });
   }
