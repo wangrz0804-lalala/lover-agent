@@ -268,7 +268,7 @@
   var $ = function (id) { return document.getElementById(id); };
 
   var DEFAULT_API = {
-    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
     apiKey: "",
     model: "qwen-plus",
     myName: ""
@@ -292,6 +292,11 @@
     var oe = load("memorySummary", ""); if (oe) save("mem.p1", oe);
   }
   if (!api) api = Object.assign({}, DEFAULT_API);
+  // 业务空间专属域名(ws-*.maas)不支持浏览器跨域直连，自动换成国际站公共地址
+  if (/^https?:\/\/ws-[a-z0-9.-]*maas\.aliyuncs\.com/.test(api.baseUrl || "")) {
+    api.baseUrl = DEFAULT_API.baseUrl;
+    save("api", api);
+  }
 
   var active = null;          // 当前窗口的人设对象
   var editingId = null;       // 编辑表单指向的人设 id
@@ -522,7 +527,7 @@
     showTyping();
     detectProxy().then(function () { return streamReply(); }).catch(function (e) {
       hideTyping();
-      $("chat").insertAdjacentHTML("beforeend", '<div class="row lover"><div class="mini-avatar">' + esc(initial()) + '</div><div class="bubble error">' + esc(e.message) + "</div></div>");
+      $("chat").insertAdjacentHTML("beforeend", '<div class="row lover"><div class="mini-avatar">' + esc(initial()) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>");
       scrollBottom(true);
     }).then(function () {
       busy = false;
@@ -530,6 +535,11 @@
     });
   }
   function updateSend() { $("send").disabled = busy || !$("input").value.trim(); }
+  function friendlyErr(e) {
+    var m = (e && e.message) || "网络错误";
+    if (m === "Failed to fetch") return "浏览器连不上这个 API 地址（跨域限制）。去设置里换成官方地址：" + DEFAULT_API.baseUrl;
+    return m;
+  }
 
   /* ---------- 抽屉 ---------- */
   function openSheet(id) {
