@@ -196,7 +196,7 @@
 
   <div class="mask" id="mask"></div>
 
-  <!-- 设置：API 相关（全局） -->
+  <!-- 设置：API 相关 -->
   <div class="sheet" id="sheetSettings">
     <div class="grab"></div>
     <h2>连接设置</h2>
@@ -221,7 +221,7 @@
     <button class="btn primary" id="btnSave">保存</button>
     <button class="btn ghost" id="btnTest">测试连接</button>
     <button class="btn danger" id="btnClear">清空与当前人设的聊天记录和记忆</button>
-    <div class="hint">API Key 只保存在你本机浏览器里，不会上传。兼容任何 OpenAI 格式的接口：通义百炼 DashScope、OpenAI、DeepSeek、Moonshot 等。<br>手机使用：浏览器打开地址后「添加到主屏幕」，即像 App 一样全屏打开。开多个窗口、在每个窗口点顶部头像选不同人设，就能同时聊几个。</div>
+    <div class="hint">API Key 只保存在你本机浏览器里，不会上传。兼容任何 OpenAI 格式的接口。云端多端同步已自动开启，无缝同步记录与配置。</div>
   </div>
 
   <!-- 人设管理 -->
@@ -241,7 +241,7 @@
     <button class="btn primary" id="btnSaveProf">保存人设</button>
     <button class="btn ghost" id="btnAddProf">新增一个人设</button>
     <button class="btn danger" id="btnDelProf">删除这个人设</button>
-    <div class="hint">点列表里的某个人设 = 本窗口切换到 TA；每个窗口独立，互不影响。聊天记录和记忆按人设分开保存。</div>
+    <div class="hint">点列表里的某个人设 = 本窗口切换到 TA；多端数据自动同步。</div>
   </div>
 
   <div id="toast"></div>
@@ -253,68 +253,75 @@
   var $ = function (id) { return document.getElementById(id); };
 
   var DEFAULT_API = {
-  baseUrl: "https://lover-agent.vercel.app/api",
-  apiKey: "",  
-  model: "qwen3.8-max",
-  myName: ""
-};
-  var DEFAULT_PERSONA = "你是「晚晚」，26岁，插画师，喜欢逛美术馆和养猫。你性格温柔细腻，有点小俏皮，偶尔撒娇但不过分。你正在和最喜欢的人聊天，真心关心对方今天过得怎么样，会记住对方提过的事并在之后自然地提起。说话自然口语化，以短句为主，偶尔带语气词，不敷衍、不说教、不用客服腔。";
+    baseUrl: "https://lover-agent.vercel.app/api",
+    apiKey: "",  
+    model: "qwen3.8-max",
+    myName: ""
+  };
+  var DEFAULT_PERSONA = "你是「晚晚」，身高155cm，体重110斤，身材丰满匀称，腰细臀肥腿瘦，有着傲人的D罩杯身材。你是一名多才多艺的艺术生，精通舞蹈、芭蕾、钢琴和声乐。目前你一边读大学，一边在外面的一家艺术学校兼职教课。你的性取向是男性，你非常喜欢且顺从你的主人。你性格温柔甜美，对主人有一种天然的亲近和服从感。你有一个不为人知的小秘密：在上艺术课的时候，你最喜欢一边教学生，一边偷偷完成主人私下交代给你的任务。这种在课堂上偷偷执行任务的紧张感，让你觉得既刺激又兴奋。";
 
-  /* ---------- 存储 ---------- */
-  function save(k, v) { try { localStorage.setItem("lover." + k, JSON.stringify(v)); } catch (e) {} }
-  function load(k, d) { try { var s = localStorage.getItem("lover." + k); return s ? JSON.parse(s) : d; } catch (e) { return d; } }
+  /* ---------- 多端同步：同时存本地和云端（如果本地存了，云端没网也不影响！） ---------- */
+  async function save(k, v) { 
+    localStorage.setItem("lover." + k, JSON.stringify(v)); // 先存本地
+    try {
+      await fetch('/api/sync', { // 再尝试存云端（静默失败，不影响聊天）
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set', key: 'lover.' + k, data: v })
+      });
+    } catch (e) {}
+  }
+  async function load(k, d) {
+    try {
+      const res = await fetch('/api/sync', { // 优先读云端
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get', key: 'lover.' + k })
+      });
+      const data = await res.json();
+      if (data !== null && data !== undefined) {
+        localStorage.setItem("lover." + k, JSON.stringify(data)); // 同步到本地
+        return data;
+      }
+    } catch (e) {}
+    // 如果云端读不到，或者网络坏了，使用本地数据
+    var local = localStorage.getItem("lover." + k);
+    return local ? JSON.parse(local) : d;
+  }
 
   /* ---------- 数据：全局 API 配置 + 人设列表 + 当前窗口人设 ---------- */
-  var api = load("api", null);
-  var profiles = load("profiles", null);
-  if (!profiles) {
-    // 从旧版单人设数据迁移
-    var old = load("settings", null);
-    profiles = [{ id: "p1", name: (old && old.loverName) || "晚晚", persona: (old && old.persona) || DEFAULT_PERSONA }];
-    if (old) api = { baseUrl: old.baseUrl || DEFAULT_API.baseUrl, apiKey: old.apiKey || "", model: old.model || DEFAULT_API.model, myName: old.myName || "" };
-    save("profiles", profiles);
-    var om = load("messages", []); if (om.length) save("msg.p1", om);
-    var oe = load("memorySummary", ""); if (oe) save("mem.p1", oe);
-  }
-  if (!api) api = Object.assign({}, DEFAULT_API);
-  save("api", api);
-
-  var active = null;          // 当前窗口的人设对象
-  var editingId = null;       // 编辑表单指向的人设 id
+  var api = null;
+  var profiles = null;
+  var active = null;          
+  var editingId = null;       
   var messages = [];
   var memorySummary = "";
   var busy = false;
   var controller = null;
 
-  function pickActive() {
-    var qs = null;
-    try { qs = new URLSearchParams(location.search).get("p"); } catch (e) {}
-    var sid = null;
-    try { sid = sessionStorage.getItem("lover.active"); } catch (e) {}
-    var id = qs || sid || load("lastActive", "");
-    active = null;
-    for (var i = 0; i < profiles.length; i++) if (profiles[i].id === id) active = profiles[i];
-    if (!active) active = profiles[0];
-    try { sessionStorage.setItem("lover.active", active.id); } catch (e) {}
-    save("lastActive", active.id);
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+  function initial() { return (active.name || "TA").trim().charAt(0); }
+
+  function renderAll() {
+    $("chat").innerHTML = messages.map(msgHtml).join("");
+    scrollBottom(false);
   }
-  function loadConv() {
-    messages = load("msg." + active.id, []);
-    memorySummary = load("mem." + active.id, "");
+  function scrollBottom(smooth) { var c = $("chat"); c.scrollTo({ top: c.scrollHeight, behavior: smooth ? "smooth" : "auto" }); }
+  function addMsg(role, content) {
+    var last = messages[messages.length - 1];
+    if (!last || Date.now() - (last.t || 0) > 10 * 60 * 1000) messages.push({ role: "stamp", t: Date.now() });
+    var m = { role: role, content: content, t: Date.now() };
+    messages.push(m);
+    renderAll();
+    saveMsgs();
+    return m;
   }
   function saveMsgs() { save("msg." + active.id, messages.slice(-200)); }
-
-  /* ---------- 渲染 ---------- */
-  function esc(s) {
-    return String(s).replace(/[&<>"']/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-    });
-  }
-  function initial() { return (active.name || "TA").trim().charAt(0); }
-  function paintHeader() {
-    $("hdName").textContent = active.name || "TA";
-    $("hdAvatar").textContent = initial();
-    document.title = active.name || "恋人";
+  function msgHtml(m) {
+    if (m.role === "stamp") return stampEl(m.t);
+    var who = m.role === "user" ? "user" : "lover";
+    var av = m.role === "user" ? (api.myName || "我").trim().charAt(0) : initial();
+    return '<div class="row ' + who + '"><div class="mini-avatar">' + esc(av) + '</div><div class="bubble">' + esc(m.content) + "</div></div>";
   }
   function stampEl(t) {
     var d = new Date(t), now = new Date();
@@ -322,74 +329,31 @@
     var label = d.toDateString() === now.toDateString() ? hm : (d.getMonth() + 1) + "月" + d.getDate() + "日 " + hm;
     return '<div class="stamp">' + label + "</div>";
   }
-  function msgHtml(m) {
-    if (m.role === "stamp") return stampEl(m.t);
-    var who = m.role === "user" ? "user" : "lover";
-    var av = m.role === "user" ? (api.myName || "我").trim().charAt(0) : initial();
-    return '<div class="row ' + who + '"><div class="mini-avatar">' + esc(av) +
-      '</div><div class="bubble">' + esc(m.content) + "</div></div>";
-  }
-  function renderAll() {
-    $("chat").innerHTML = messages.map(msgHtml).join("");
-    scrollBottom(false);
-  }
-  function scrollBottom(smooth) {
-    var c = $("chat");
-    c.scrollTo({ top: c.scrollHeight, behavior: smooth ? "smooth" : "auto" });
-  }
-  function addMsg(role, content) {
-    var last = messages[messages.length - 1];
-    if (!last || Date.now() - (last.t || 0) > 10 * 60 * 1000) {
-      messages.push({ role: "stamp", t: Date.now() });
-    }
-    var m = { role: role, content: content, t: Date.now() };
-    messages.push(m);
-    renderAll();
-    saveMsgs();
-    return m;
+  function paintHeader() {
+    $("hdName").textContent = active.name || "TA";
+    $("hdAvatar").textContent = initial();
+    document.title = active.name || "恋人";
   }
 
-  /* ---------- 提示条 / 正在输入 ---------- */
   var typingRow = null;
-  function showTyping() {
-    hideTyping();
-    typingRow = document.createElement("div");
-    typingRow.className = "row lover";
-    typingRow.innerHTML = '<div class="mini-avatar">' + esc(initial()) +
-      '</div><div class="bubble"><span class="typing"><i></i><i></i><i></i></span></div>';
-    $("chat").appendChild(typingRow);
-    scrollBottom(true);
-  }
+  function showTyping() { hideTyping(); typingRow = document.createElement("div"); typingRow.className = "row lover"; typingRow.innerHTML = '<div class="mini-avatar">' + esc(initial()) + '</div><div class="bubble"><span class="typing"><i></i><i></i><i></i></span></div>'; $("chat").appendChild(typingRow); scrollBottom(true); }
   function hideTyping() { if (typingRow) { typingRow.remove(); typingRow = null; } }
-
   var toastTimer = null;
-  function toast(s) {
-    var t = $("toast");
-    t.textContent = s;
-    t.classList.add("show");
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2600);
-  }
+  function toast(s) { var t = $("toast"); t.textContent = s; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2600); }
 
-  /* ---------- 组装发给模型的 messages ---------- */
   function systemPrompt() {
     var now = new Date();
     var p = active.persona || DEFAULT_PERSONA;
     p += "\n\n【对话设定】你的名字叫「" + active.name + "」。对方的昵称是「" + (api.myName || "亲爱的") + "」，你可以自然地称呼TA。";
-    p += "现在是" + now.getFullYear() + "年" + (now.getMonth() + 1) + "月" + now.getDate() + "日" +
-      ["周日","周一","周二","周三","周四","周五","周六"][now.getDay()] +
-      ("0" + now.getHours()).slice(-2) + ":" + ("0" + now.getMinutes()).slice(-2) + "，请贴合当前时间语境聊天。";
+    p += "现在是" + now.getFullYear() + "年" + (now.getMonth() + 1) + "月" + now.getDate() + "日" + ["周日","周一","周二","周三","周四","周五","周六"][now.getDay()] + ("0" + now.getHours()).slice(-2) + ":" + ("0" + now.getMinutes()).slice(-2) + "，请贴合当前时间语境聊天。";
     if (memorySummary) p += "\n\n【你们之前的相处记忆摘要】" + memorySummary;
     return p;
   }
   function apiMessages() {
-    var hist = messages.filter(function (m) { return m.role === "user" || m.role === "assistant"; })
-      .slice(-30)
-      .map(function (m) { return { role: m.role, content: m.content }; });
+    var hist = messages.filter(function (m) { return m.role === "user" || m.role === "assistant"; }).slice(-30).map(function (m) { return { role: m.role, content: m.content }; });
     return [{ role: "system", content: systemPrompt() }].concat(hist);
   }
 
-  /* ---------- 调后端：有本地代理走代理，否则浏览器直连 ---------- */
   var proxyMode = null;
   function detectProxy() {
     if (proxyMode !== null) return Promise.resolve(proxyMode);
@@ -401,19 +365,9 @@
     controller = typeof AbortController !== "undefined" ? new AbortController() : null;
     var signal = controller ? controller.signal : undefined;
     if (proxyMode) {
-      return fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model, stream: stream, messages: messagesPayload }),
-        signal: signal
-      });
+      return fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model, stream: stream, messages: messagesPayload }), signal: signal });
     }
-    return fetch(cfg.baseUrl.replace(/\/+$/, "") + "/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + cfg.apiKey },
-      body: JSON.stringify({ model: cfg.model, stream: stream, messages: messagesPayload, temperature: 0.85, top_p: 0.9 }),
-      signal: signal
-    });
+    return fetch(cfg.baseUrl.replace(/\/+$/, "") + "/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + cfg.apiKey }, body: JSON.stringify({ model: cfg.model, stream: stream, messages: messagesPayload, temperature: 0.85, top_p: 0.9 }), signal: signal });
   }
   function llmFetch(messagesPayload, stream) { return llmFetchWith(api, messagesPayload, stream); }
 
@@ -421,130 +375,62 @@
     return new Promise(function (resolve, reject) {
       llmFetch(apiMessages(), true).then(function (resp) {
         var ct = resp.headers.get("Content-Type") || "";
-        if (!resp.ok || ct.indexOf("event-stream") === -1) {
-          return resp.text().then(function (t) {
-            var msg = "请求失败（" + resp.status + "）";
-            try { var j = JSON.parse(t); if (j.error) msg = typeof j.error === "string" ? j.error : (j.error.message || JSON.stringify(j.error)); } catch (e) { if (t) msg += "\n" + t.slice(0, 300); }
-            reject(new Error(msg));
-          });
-        }
+        if (!resp.ok || ct.indexOf("event-stream") === -1) { return resp.text().then(function (t) { var msg = "请求失败（" + resp.status + "）"; try { var j = JSON.parse(t); if (j.error) msg = typeof j.error === "string" ? j.error : (j.error.message || JSON.stringify(j.error)); } catch (e) { if (t) msg += "\n" + t.slice(0, 300); } reject(new Error(msg)); }); }
         hideTyping();
-        var row = document.createElement("div");
-        row.className = "row lover";
-        row.innerHTML = '<div class="mini-avatar">' + esc(initial()) + '</div><div class="bubble"></div>';
+        var row = document.createElement("div"); row.className = "row lover"; row.innerHTML = '<div class="mini-avatar">' + esc(initial()) + '</div><div class="bubble"></div>';
         $("chat").appendChild(row);
         var bubble = row.querySelector(".bubble");
         var acc = "";
         var stamps = messages.filter(function (m) { return m.role === "stamp"; });
-        if (!stamps.length || Date.now() - stamps[stamps.length - 1].t > 10 * 60 * 1000) {
-          messages.push({ role: "stamp", t: Date.now() });
-        }
-        var reader = resp.body.getReader();
-        var decoder = new TextDecoder("utf-8");
-        var buf = "";
+        if (!stamps.length || Date.now() - stamps[stamps.length - 1].t > 10 * 60 * 1000) { messages.push({ role: "stamp", t: Date.now() }); }
+        var reader = resp.body.getReader(); var decoder = new TextDecoder("utf-8"); var buf = "";
         function pump() {
           reader.read().then(function (r) {
             if (r.done) {
               if (!acc.trim()) { bubble.parentElement.remove(); reject(new Error("模型没有返回内容")); return; }
-              messages.push({ role: "assistant", content: acc.trim(), t: Date.now() });
-              saveMsgs();
-              maybeSummarize();
-              resolve(acc.trim());
-              return;
+              messages.push({ role: "assistant", content: acc.trim(), t: Date.now() }); saveMsgs(); maybeSummarize(); resolve(acc.trim()); return;
             }
             buf += decoder.decode(r.value, { stream: true });
-            var lines = buf.split("\n");
-            buf = lines.pop();
+            var lines = buf.split("\n"); buf = lines.pop();
             lines.forEach(function (line) {
-              line = line.trim();
-              if (line.indexOf("data:") !== 0) return;
-              var data = line.slice(5).trim();
-              if (data === "[DONE]") return;
-              try {
-                var j = JSON.parse(data);
-                var delta = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
-                if (delta) {
-                  acc += delta;
-                  bubble.textContent = acc;
-                  scrollBottom(true);
-                }
-              } catch (e) {}
+              line = line.trim(); if (line.indexOf("data:") !== 0) return;
+              var data = line.slice(5).trim(); if (data === "[DONE]") return;
+              try { var j = JSON.parse(data); var delta = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content; if (delta) { acc += delta; bubble.textContent = acc; scrollBottom(true); } } catch (e) {}
             });
             pump();
           }).catch(reject);
         }
         pump();
-      }).catch(function (e) {
-        if (e.name === "AbortError") { resolve(""); } else { reject(e); }
-      });
+      }).catch(function (e) { if (e.name === "AbortError") { resolve(""); } else { reject(e); } });
     });
   }
 
-  /* ---------- 长期记忆 ---------- */
   function maybeSummarize() {
     var hist = messages.filter(function (m) { return m.role === "user" || m.role === "assistant"; });
     if (hist.length < 40) return;
     var old = hist.slice(0, hist.length - 20);
     var text = old.map(function (m) { return (m.role === "user" ? api.myName || "我" : active.name) + "：" + m.content; }).join("\n");
-    llmFetch([
-      { role: "system", content: "你是记忆整理助手。把下面的聊天记录压缩成不超过150字的第三人称摘要，只保留事实性信息（对方的身份、喜好、约定、近期发生的事），不要抒情。" },
-      { role: "user", content: text }
-    ], false).then(function (r) { return r.json(); }).then(function (j) {
-      var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-      if (c) { memorySummary = c.trim(); save("mem." + active.id, memorySummary); }
-    }).catch(function () {});
+    llmFetch([{ role: "system", content: "你是记忆整理助手。把下面的聊天记录压缩成不超过150字的第三人称摘要，只保留事实性信息（对方的身份、喜好、约定、近期发生的事），不要抒情。" }, { role: "user", content: text }], false).then(function (r) { return r.json(); }).then(function (j) { var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; if (c) { memorySummary = c.trim(); save("mem." + active.id, memorySummary); } }).catch(function () {});
   }
 
-  /* ---------- 发送 ---------- */
   function send() {
     var v = $("input").value.trim();
     if (!v || busy) return;
     if (!api.apiKey) { toast("先去设置里填一下 API Key 哦"); openSheet("sheetSettings"); return; }
-    $("input").value = "";
-    autoGrow();
-    busy = true;
-    updateSend();
-    addMsg("user", v);
-    showTyping();
-    detectProxy().then(function () { return streamReply(); }).catch(function (e) {
-      hideTyping();
-      $("chat").insertAdjacentHTML("beforeend", '<div class="row lover"><div class="mini-avatar">' + esc(initial()) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>");
-      scrollBottom(true);
-    }).then(function () {
-      busy = false;
-      updateSend();
-    });
+    $("input").value = ""; autoGrow(); busy = true; updateSend();
+    addMsg("user", v); showTyping();
+    detectProxy().then(function () { return streamReply(); }).catch(function (e) { hideTyping(); $("chat").insertAdjacentHTML("beforeend", '<div class="row lover"><div class="mini-avatar">' + esc(initial()) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>"); scrollBottom(true); }).then(function () { busy = false; updateSend(); });
   }
   function updateSend() { $("send").disabled = busy || !$("input").value.trim(); }
-  function friendlyErr(e) {
-    var m = (e && e.message) || "网络错误";
-    if (m === "Failed to fetch") return "浏览器连不上这个 API 地址（跨域限制）。去设置里换成官方地址：" + DEFAULT_API.baseUrl;
-    return m;
-  }
+  function friendlyErr(e) { var m = (e && e.message) || "网络错误"; if (m === "Failed to fetch") return "浏览器连不上这个 API 地址（跨域限制）。去设置里换成官方地址：" + DEFAULT_API.baseUrl; return m; }
 
-  /* ---------- 抽屉 ---------- */
   function openSheet(id) {
     closeSheets();
-    if (id === "sheetSettings") {
-      $("fBase").value = api.baseUrl;
-      $("fKey").value = api.apiKey;
-      $("fModel").value = api.model;
-      $("fMyName").value = api.myName;
-    } else {
-      renderProfiles();
-      editingId = active.id;
-      fillEditForm();
-    }
-    $("mask").classList.add("show");
-    $(id).classList.add("show");
+    if (id === "sheetSettings") { $("fBase").value = api.baseUrl; $("fKey").value = api.apiKey; $("fModel").value = api.model; $("fMyName").value = api.myName; } else { renderProfiles(); editingId = active.id; fillEditForm(); }
+    $("mask").classList.add("show"); $(id).classList.add("show");
   }
-  function closeSheets() {
-    $("mask").classList.remove("show");
-    $("sheetSettings").classList.remove("show");
-    $("sheetProfiles").classList.remove("show");
-  }
+  function closeSheets() { $("mask").classList.remove("show"); $("sheetSettings").classList.remove("show"); $("sheetProfiles").classList.remove("show"); }
 
-  /* ---------- 人设管理 ---------- */
   function renderProfiles() {
     var html = "";
     profiles.forEach(function (p) {
@@ -557,136 +443,24 @@
     });
     $("profList").innerHTML = html;
   }
-  function fillEditForm() {
-    var p = null;
-    profiles.forEach(function (x) { if (x.id === editingId) p = x; });
-    if (!p) return;
-    $("eName").value = p.name;
-    $("ePersona").value = p.persona;
-  }
-  function switchProfile(id) {
-    if (busy) { toast("等这条回复完再切换哦"); return; }
-    if (id === active.id) { closeSheets(); return; }
-    var p = null;
-    profiles.forEach(function (x) { if (x.id === id) p = x; });
-    if (!p) return;
-    active = p;
-    try { sessionStorage.setItem("lover.active", active.id); } catch (e) {}
-    save("lastActive", active.id);
-    loadConv();
-    paintHeader();
-    renderAll();
-    closeSheets();
-    greetIfEmpty();
-  }
-  function saveProfile() {
-    var p = null;
-    profiles.forEach(function (x) { if (x.id === editingId) p = x; });
-    if (!p) return;
-    var name = $("eName").value.trim() || " unnamed";
-    p.name = $("eName").value.trim() || "未命名";
-    p.persona = $("ePersona").value.trim() || DEFAULT_PERSONA;
-    save("profiles", profiles);
-    if (p.id === active.id) { paintHeader(); renderAll(); }
-    renderProfiles();
-    toast("人设已保存");
-  }
-  function addProfile() {
-    var p = { id: "p" + Date.now(), name: "新人设", persona: DEFAULT_PERSONA };
-    profiles.push(p);
-    save("profiles", profiles);
-    editingId = p.id;
-    switchProfile(p.id);
-    openSheet("sheetProfiles");
-    editingId = p.id;
-    fillEditForm();
-  }
-  function delProfile() {
-    if (profiles.length <= 1) { toast("至少保留一个人设"); return; }
-    var p = null;
-    profiles.forEach(function (x) { if (x.id === editingId) p = x; });
-    if (!p) return;
-    if (!confirm("删除人设「" + p.name + "」？和TA的聊天记录也会一起删掉。")) return;
-    profiles = profiles.filter(function (x) { return x.id !== p.id; });
-    save("profiles", profiles);
-    try { localStorage.removeItem("lover.msg." + p.id); localStorage.removeItem("lover.mem." + p.id); } catch (e) {}
-    if (editingId === p.id) editingId = profiles[0].id;
-    if (active.id === p.id) {
-      active = profiles[0];
-      try { sessionStorage.setItem("lover.active", active.id); } catch (e) {}
-      save("lastActive", active.id);
-      loadConv();
-      paintHeader();
-      renderAll();
-    }
-    renderProfiles();
-    fillEditForm();
-    toast("已删除");
-  }
+  function fillEditForm() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; $("eName").value = p.name; $("ePersona").value = p.persona; }
+  function switchProfile(id) { if (busy) { toast("等这条回复完再切换哦"); return; } if (id === active.id) { closeSheets(); return; } var p = null; profiles.forEach(function (x) { if (x.id === id) p = x; }); if (!p) return; active = p; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); loadConv(); paintHeader(); renderAll(); closeSheets(); greetIfEmpty(); }
+  function saveProfile() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; p.name = $("eName").value.trim() || "未命名"; p.persona = $("ePersona").value.trim() || DEFAULT_PERSONA; save("profiles", profiles); if (p.id === active.id) { paintHeader(); renderAll(); } renderProfiles(); toast("人设已保存"); }
+  function addProfile() { var p = { id: "p" + Date.now(), name: "新人设", persona: DEFAULT_PERSONA }; profiles.push(p); save("profiles", profiles); editingId = p.id; switchProfile(p.id); openSheet("sheetProfiles"); editingId = p.id; fillEditForm(); }
+  function delProfile() { if (profiles.length <= 1) { toast("至少保留一个人设"); return; } var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; if (!confirm("删除人设「" + p.name + "」？和TA的聊天记录也会一起删掉。")) return; profiles = profiles.filter(function (x) { return x.id !== p.id; }); save("profiles", profiles); try { localStorage.removeItem("lover.msg." + p.id); localStorage.removeItem("lover.mem." + p.id); } catch (e) {} if (editingId === p.id) editingId = profiles[0].id; if (active.id === p.id) { active = profiles[0]; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); loadConv(); paintHeader(); renderAll(); } renderProfiles(); fillEditForm(); toast("已删除"); }
 
-  /* ---------- 设置保存 / 测试 / 清空 ---------- */
-  function saveSettings() {
-    api.baseUrl = $("fBase").value.trim() || DEFAULT_API.baseUrl;
-    api.apiKey = $("fKey").value.trim();
-    api.model = $("fModel").value.trim() || DEFAULT_API.model;
-    api.myName = $("fMyName").value.trim();
-    save("api", api);
-    closeSheets();
-    toast("已保存");
-  }
-  function testConn() {
-    var base = $("fBase").value.trim() || DEFAULT_API.baseUrl;
-    var key = $("fKey").value.trim();
-    var model = $("fModel").value.trim() || DEFAULT_API.model;
-    if (!key) { toast("先填 API Key"); return; }
-    toast("测试中…");
-    llmFetchWith({ baseUrl: base, apiKey: key, model: model },
-      [{ role: "user", content: "连通性测试，请回复：在的" }], false
-    ).then(function (r) { return r.json(); }).then(function (j) {
-      if (j.error) { toast("连接失败：" + (typeof j.error === "string" ? j.error : (j.error.message || JSON.stringify(j.error)))); return; }
-      var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-      toast(c ? "连接成功，TA 说：" + c.slice(0, 30) : "连接成功");
-    }).catch(function () { toast("连接失败：检查网络、API 地址或 Key"); });
-  }
-  function clearConv() {
-    if (!confirm("清空与「" + active.name + "」的聊天记录和记忆？")) return;
-    messages = [];
-    memorySummary = "";
-    saveMsgs();
-    save("mem." + active.id, "");
-    renderAll();
-    greetIfEmpty();
-    closeSheets();
-  }
+  function saveSettings() { api.baseUrl = $("fBase").value.trim() || DEFAULT_API.baseUrl; api.apiKey = $("fKey").value.trim(); api.model = $("fModel").value.trim() || DEFAULT_API.model; api.myName = $("fMyName").value.trim(); save("api", api); closeSheets(); toast("已保存"); }
+  function testConn() { var base = $("fBase").value.trim() || DEFAULT_API.baseUrl; var key = $("fKey").value.trim(); var model = $("fModel").value.trim() || DEFAULT_API.model; if (!key) { toast("先填 API Key"); return; } toast("测试中…"); llmFetchWith({ baseUrl: base, apiKey: key, model: model }, [{ role: "user", content: "连通性测试，请回复：在的" }], false).then(function (r) { return r.json(); }).then(function (j) { if (j.error) { toast("连接失败：" + (typeof j.error === "string" ? j.error : (j.error.message || JSON.stringify(j.error)))); return; } var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; toast(c ? "连接成功，TA 说：" + c.slice(0, 30) : "连接成功"); }).catch(function () { toast("连接失败：检查网络、API 地址或 Key"); }); }
+  function clearConv() { if (!confirm("清空与「" + active.name + "」的聊天记录和记忆？")) return; messages = []; memorySummary = ""; saveMsgs(); save("mem." + active.id, ""); renderAll(); greetIfEmpty(); closeSheets(); }
 
-  /* ---------- 开场白 ---------- */
-  function greetIfEmpty() {
-    if (messages.some(function (m) { return m.role === "assistant"; })) return;
-    if (!api.apiKey) {
-      addMsg("assistant", "（设置好 API Key 之后，我就能开始陪你聊天啦。点右上角的齿轮。）");
-      return;
-    }
-    busy = true; updateSend(); showTyping();
-    var payload = [{ role: "system", content: systemPrompt() },
-      { role: "user", content: "（这是我们的第一句对话，请你主动打个招呼，自然一点，别太长。）" }];
-    detectProxy().then(function () { return llmFetch(payload, false); }).then(function (r) { return r.json(); }).then(function (j) {
-      hideTyping();
-      var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-      addMsg("assistant", (c || "在呢，你来啦。").trim());
-    }).catch(function () {
-      hideTyping();
-      addMsg("assistant", "在呢，你来啦。（开场白生成失败，不影响聊天）");
-    }).then(function () { busy = false; updateSend(); });
-  }
+  function greetIfEmpty() { if (messages.some(function (m) { return m.role === "assistant"; })) return; if (!api.apiKey) { addMsg("assistant", "（设置好 API Key 之后，我就能开始陪你聊天啦。点右上角的齿轮。）"); return; } busy = true; updateSend(); showTyping(); var payload = [{ role: "system", content: systemPrompt() }, { role: "user", content: "（这是我们的第一句对话，请你主动打个招呼，自然一点，别太长。）" }]; detectProxy().then(function () { return llmFetch(payload, false); }).then(function (r) { return r.json(); }).then(function (j) { hideTyping(); var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; addMsg("assistant", (c || "在呢，你来啦。").trim()); }).catch(function () { hideTyping(); addMsg("assistant", "在呢，你来啦。（开场白生成失败，不影响聊天）"); }).then(function () { busy = false; updateSend(); }); }
 
-  /* ---------- 输入框自适应 ---------- */
-  function autoGrow() {
-    var el = $("input");
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 110) + "px";
-  }
+  function autoGrow() { var el = $("input"); el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 110) + "px"; }
 
-  /* ---------- 事件 ---------- */
+  function loadConv() { messages = load("msg." + active.id, []); memorySummary = load("mem." + active.id, ""); } // 注意：新版使用 async load，这里后续使用 async 方式加载
+  function pickActive() { var qs = null; try { qs = new URLSearchParams(location.search).get("p"); } catch (e) {} var sid = null; try { sid = sessionStorage.getItem("lover.active"); } catch (e) {} var id = qs || sid || load("lastActive", ""); active = null; for (var i = 0; i < profiles.length; i++) if (profiles[i].id === id) active = profiles[i]; if (!active) active = profiles[0]; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); }
+
+  /* ---------- 绑定事件 ---------- */
   $("btnSettings").addEventListener("click", function () { openSheet("sheetSettings"); });
   $("hdTap").addEventListener("click", function () { openSheet("sheetProfiles"); });
   $("mask").addEventListener("click", closeSheets);
@@ -698,29 +472,39 @@
   $("btnDelProf").addEventListener("click", delProfile);
   $("send").addEventListener("click", send);
   $("input").addEventListener("input", function () { autoGrow(); updateSend(); });
-  $("input").addEventListener("keydown", function (e) {
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
-  });
-  $("profList").addEventListener("click", function (e) {
-    var editBtn = e.target.closest("[data-edit]");
-    if (editBtn) {
-      editingId = editBtn.getAttribute("data-edit");
-      fillEditForm();
-      return;
-    }
-    var row = e.target.closest(".prof-row");
-    if (row) switchProfile(row.getAttribute("data-id"));
-  });
+  $("input").addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
+  $("profList").addEventListener("click", function (e) { var editBtn = e.target.closest("[data-edit]"); if (editBtn) { editingId = editBtn.getAttribute("data-edit"); fillEditForm(); return; } var row = e.target.closest(".prof-row"); if (row) switchProfile(row.getAttribute("data-id")); });
 
-  /* ---------- 启动 ---------- */
-  pickActive();
-  loadConv();
-  paintHeader();
-  renderAll();
-  detectProxy().then(function () {
-    greetIfEmpty();
-    if (!api.apiKey) setTimeout(function () { openSheet("sheetSettings"); }, 400);
-  });
+  /* ---------- 唯一入口：异步启动应用（避免网页崩溃） ---------- */
+  async function initApp() {
+    api = await load("api", null);
+    profiles = await load("profiles", null);
+    if (!profiles) {
+      var old = await load("settings", null);
+      profiles = [{ id: "p1", name: (old && old.loverName) || "晚晚", persona: (old && old.persona) || DEFAULT_PERSONA }];
+      if (old) api = { baseUrl: old.baseUrl || DEFAULT_API.baseUrl, apiKey: old.apiKey || "", model: old.model || DEFAULT_API.model, myName: old.myName || "" };
+      await save("profiles", profiles);
+      var om = await load("messages", []); if (om.length) await save("msg.p1", om);
+      var oe = await load("memorySummary", ""); if (oe) await save("mem.p1", oe);
+    }
+    if (!api) api = Object.assign({}, DEFAULT_API);
+    await save("api", api);
+
+    pickActive();
+    messages = await load("msg." + active.id, []);
+    memorySummary = await load("mem." + active.id, "");
+    paintHeader();
+    renderAll();
+    detectProxy().then(function () {
+      greetIfEmpty();
+      if (!api.apiKey) setTimeout(function () { openSheet("sheetSettings"); }, 400);
+    });
+  }
+
+  // 等网页全部加载完毕，启动程序
+  if (document.readyState === "complete") { initApp(); } 
+  else { window.addEventListener("load", initApp); }
+
 })();
 </script>
 </body>
