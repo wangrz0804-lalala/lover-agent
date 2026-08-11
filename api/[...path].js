@@ -51,9 +51,10 @@ export default async function handler(req, res) {
       try {
         data = JSON.parse(rawText);
       } catch (e) {
-        return res.status(500).json({ error: '阿里云非流式返回异常: ' + rawText.slice(0, 100) });
+        return res.status(500).json({ error: '阿里云返回了奇怪格式: ' + rawText.slice(0, 100) });
       }
-      return res.status(200).json(data);
+      // ✅ 关键修复：把之前写死的 200，改回阿里云返回的真实状态码。
+      return res.status(response.status).json(data);
 
     } catch (error) {
       console.error('中转请求出错:', error);
