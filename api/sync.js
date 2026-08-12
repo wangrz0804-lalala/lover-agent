@@ -3,9 +3,13 @@ import { kv } from '@vercel/kv';
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-App-Token');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
+
+  const APP_TOKEN = process.env.APP_TOKEN || 'bd6829b897af9f18895b5fe5';
+  const okToken = req.headers['x-app-token'] === APP_TOKEN || (req.body && req.body.token === APP_TOKEN);
+  if (!okToken) return res.status(401).json({ error: 'token 校验失败' });
 
   const { action, key, data } = req.body;
   if (action === 'get') {
