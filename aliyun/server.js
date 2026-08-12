@@ -2,6 +2,8 @@
 "use strict";
 const http = require("http");
 const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
 
 const PORT = 9000;
 const APP_TOKEN = process.env.APP_TOKEN || "bd6829b897af9f18895b5fe5";
@@ -57,6 +59,23 @@ function safeKey(k) {
   return String(k || "").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200);
 }
 
+/* ---------- 静态文件（前端由 FC 直接吐出；OSS 默认域名会强制下载网页） ---------- */
+const STATIC_FILES = {
+  "/": { file: "index.html", type: "text/html" },
+  "/index.html": { file: "index.html", type: "text/html" },
+  "/manifest.webmanifest": { file: "manifest.webmanifest", type: "application/manifest+json; charset=utf-8" },
+  "/icon.png": { file: "icon.png", type: "image/png" },
+};
+function serveStatic(res, entry) {
+  let buf;
+  try { buf = fs.readFileSync(path.join(__dirname, entry.file)); }
+  catch (e) { return json(res, 404, { error: "not found" }); }
+  cors(res);
+  res.setHeader("Content-Disposition", "inline");
+  res.writeHead(200, { "Content-Type": entry.type, "Cache-Control": "no-cache" });
+  return res.end(buf);
+}
+
 /* ---------- 路由 ---------- */
 const server = http.createServer(async (req, res) => {
   cors(res);
@@ -64,7 +83,12 @@ const server = http.createServer(async (req, res) => {
 
   const url = (req.url || "/").split("?")[0];
 
-  if (req.method === "GET" && url === "/") return json(res, 200, { ok: true, service: "lover-api" });
+  if (req.method === "GET") {
+    if (url === "/health") return json(res, 200, { ok: true, service: "lover-api" });
+    const entry = STATIC_FILES[url];
+    if (entry) return serveStatic(res, entry);
+    return json(res, 404, { error: "not found" });
+  }
 
   let body;
   try { body = await readBody(req); } catch (e) { return json(res, 400, { error: "请求体不是合法 JSON" }); }
