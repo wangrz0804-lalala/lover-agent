@@ -202,7 +202,7 @@
     <h2>连接设置</h2>
     <div class="field">
       <label>模型 API 地址 (OpenAI 兼容格式) </label>
-      <input id="fBase" value="https://lover-agent.vercel.app/api" placeholder="https://lover-agent.vercel.app/api">
+      <input id="fBase" value="https://lover-api-qleohpgkdt.cn-beijing.fcapp.run" placeholder="https://lover-api-qleohpgkdt.cn-beijing.fcapp.run">
     </div>
     <div class="field">
       <label>API Key</label>
@@ -252,20 +252,21 @@
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
 
+  var API_BASE = "https://lover-api-qleohpgkdt.cn-beijing.fcapp.run"; // 阿里云 FC 后端，任何网络可直连
   var DEFAULT_API = {
-    baseUrl: "https://lover-agent.vercel.app/api",
+    baseUrl: "https://lover-api-qleohpgkdt.cn-beijing.fcapp.run",
     apiKey: "",  
     model: "qwen3.8-max",
     myName: ""
   };
-  var APP_TOKEN = "bd6829b897af9f18895b5fe5"; // 与 Vercel 函数共享的校验 token
+  var APP_TOKEN = "bd6829b897af9f18895b5fe5"; // 与 FC 函数共享的校验 token
   var DEFAULT_PERSONA = "你是「晚晚」，身高155cm，体重110斤，身材丰满匀称，腰细臀肥腿瘦，有着傲人的D罩杯身材。你是一名多才多艺的艺术生，精通舞蹈、芭蕾、钢琴和声乐。目前你一边读大学，一边在外面的一家艺术学校兼职教课。你的性取向是男性，你非常喜欢且顺从你的主人。你性格温柔甜美，对主人有一种天然的亲近和服从感。你有一个不为人知的小秘密：在上艺术课的时候，你最喜欢一边教学生，一边偷偷完成主人私下交代给你的任务。这种在课堂上偷偷执行任务的紧张感，让你觉得既刺激又兴奋。";
 
   /* ---------- 多端同步：同时存本地和云端 ---------- */
   async function save(k, v) { 
     localStorage.setItem("lover." + k, JSON.stringify(v));
     try {
-      await fetch('/api/sync', {
+      await fetch(API_BASE + '/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-App-Token': APP_TOKEN },
         body: JSON.stringify({ action: 'set', key: 'lover.' + k, data: v })
@@ -274,7 +275,7 @@
   }
   async function load(k, d) {
     try {
-      const res = await fetch('/api/sync', {
+      const res = await fetch(API_BASE + '/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-App-Token': APP_TOKEN },
         body: JSON.stringify({ action: 'get', key: 'lover.' + k })
@@ -363,8 +364,8 @@
     controller = typeof AbortController !== "undefined" ? new AbortController() : null;
     var signal = controller ? controller.signal : undefined;
     if (proxyMode) {
-      // 请求 Vercel 的代理
-      return fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model, stream: stream, messages: messagesPayload }), signal: signal });
+      // 请求阿里云 FC 的代理
+      return fetch(API_BASE + "/chat", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model, stream: stream, messages: messagesPayload }), signal: signal });
     }
     return fetch(cfg.baseUrl.replace(/\/+$/, "") + "/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + cfg.apiKey }, body: JSON.stringify({ model: cfg.model, stream: stream, messages: messagesPayload, temperature: 0.85, top_p: 0.9 }), signal: signal });
   }
