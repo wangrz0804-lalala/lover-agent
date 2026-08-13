@@ -304,9 +304,9 @@
   var busy = false;
   var controller = null;
 
-  /* ----- 关键修复：锁定代理模式，根除 405 报错 ----- */
-  var proxyMode = true; // 强制永远走 Vercel 代理
-  function detectProxy() { return Promise.resolve(true); } 
+  /* ----- 代理/直连切换：默认走云端代理；地址改成自定义（如本地 Ollama）自动直连 ----- */
+  var proxyMode = true;
+  function detectProxy() { proxyMode = (api.baseUrl || "").replace(/\/+$/, "") === DEFAULT_API.baseUrl.replace(/\/+$/, ""); return Promise.resolve(proxyMode); }
 
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function initial() { return (active.name || "TA").trim().charAt(0); }
