@@ -478,7 +478,8 @@
     for (var i = 0; i < plain.length; i++) {
       var k = plain[i];
       var raw = localStorage.getItem("lover." + k);
-      var v = raw !== null ? JSON.parse(raw) : await cloudGet("lover." + k); // 本地没有再试试云端旧 key
+      if (raw === null) continue; // 只收纳本机遗留的旧数据，绝不从云端拉旧 key（否则新设备新用户会继承别人的旧数据）
+      var v = JSON.parse(raw);
       if (v !== null && v !== undefined) { localStorage.setItem(storeKey(k), JSON.stringify(v)); moved.push(k); }
     }
     var scan = [];
