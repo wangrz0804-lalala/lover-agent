@@ -471,7 +471,7 @@
     sel.value = cur; $("fModelCustomWrap").style.display = "none";
     var base = ($("fBase").value.trim() || DEFAULT_API.baseUrl).replace(/\/+$/, "");
     var favs = []; FAVORITE_MODELS.forEach(function (f) { if (base.indexOf(f.match) > -1) favs = f.list; });
-    var h = { "X-App-Token": APP_TOKEN }; var k = $("fKey").value.trim(); if (k) h["Authorization"] = "Bearer " + k;
+    var h = {}; if (base === DEFAULT_API.baseUrl.replace(/\/+$/, "")) h["X-App-Token"] = APP_TOKEN; var k = $("fKey").value.trim(); if (k) h["Authorization"] = "Bearer " + k;
     fetch(base + "/models", { headers: h }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
       var list = (d && d.data) ? d.data.map(function (m) { return m.id; }) : [];
       if (!list.length) return;
