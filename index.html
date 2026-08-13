@@ -579,7 +579,7 @@
 
   function openSheet(id) {
     closeSheets();
-    if (id === "sheetSettings") { $("fBase").value = api.baseUrl; $("fKey").value = api.apiKey; $("fModel").value = api.model; $("fMyName").value = api.myName; refreshModelOptions(); } else { renderProfiles(); editingId = active.id; fillEditForm(); }
+    if (id === "sheetSettings") { $("fBase").value = api.baseUrl; $("fKey").value = api.apiKey; $("fModel").value = api.model; $("fMyName").value = api.myName; $("fKey").placeholder = ($("fBase").value.trim().replace(/\/+$/, "") === DEFAULT_API.baseUrl.replace(/\/+$/, "")) ? "云端代理模式，无需填 Key" : "sk-..."; refreshModelOptions(); } else { renderProfiles(); editingId = active.id; fillEditForm(); }
     $("mask").classList.add("show"); $(id).classList.add("show");
   }
   function closeSheets() { $("mask").classList.remove("show"); $("sheetSettings").classList.remove("show"); $("sheetProfiles").classList.remove("show"); }
@@ -619,6 +619,7 @@
     sel.value = cur; $("fModelCustomWrap").style.display = "none";
     var base = ($("fBase").value.trim() || DEFAULT_API.baseUrl).replace(/\/+$/, "");
     var favs = []; FAVORITE_MODELS.forEach(function (f) { if (base.indexOf(f.match) > -1) favs = f.list; });
+    if (!favs.length && base === DEFAULT_API.baseUrl.replace(/\/+$/, "")) favs = FAVORITE_MODELS[0].list; // 代理模式：服务端带 key，收藏模型免配置直选
     var h = {}; if (base === DEFAULT_API.baseUrl.replace(/\/+$/, "")) h["X-App-Token"] = APP_TOKEN; var k = $("fKey").value.trim(); if (k) h["Authorization"] = "Bearer " + k;
     fetch(base + "/models", { headers: h }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
       var list = (d && d.data) ? d.data.map(function (m) { return m.id; }) : [];
