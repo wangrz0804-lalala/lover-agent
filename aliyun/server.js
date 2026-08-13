@@ -9,6 +9,8 @@ const PORT = 9000;
 const APP_TOKEN = process.env.APP_TOKEN || "bd6829b897af9f18895b5fe5";
 const MODEL_KEY = process.env.MODEL_KEY || "";
 const UPSTREAM = (process.env.UPSTREAM || "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1").replace(/\/+$/, "");
+const OPENROUTER_KEY = process.env.OPENROUTER_KEY || "";
+const OPENROUTER_UP = "https://openrouter.ai/api/v1";
 const OSS_AK_ID = process.env.OSS_AK_ID || "";
 const OSS_AK_SECRET = process.env.OSS_AK_SECRET || "";
 const OSS_BUCKET = process.env.OSS_BUCKET || "lover-sync-wrz0804";
@@ -109,9 +111,13 @@ const server = http.createServer(async (req, res) => {
 
   /* --- chat 代理 --- */
   if (req.method === "POST" && url === "/chat") {
-    if (!MODEL_KEY) return json(res, 500, { error: "服务端未配置 MODEL_KEY" });
+    const model = body.model || "qwen3.8-max";
+    /* OpenRouter 风格模型 ID（含 /）走 OpenRouter，用服务端 key，前端无需配置 */
+    const useOR = model.indexOf("/") !== -1;
+    if (useOR && !OPENROUTER_KEY) return json(res, 500, { error: "服务端未配置 OPENROUTER_KEY" });
+    if (!useOR && !MODEL_KEY) return json(res, 500, { error: "服务端未配置 MODEL_KEY" });
     const payload = {
-      model: body.model || "qwen3.8-max",
+      model: model,
       messages: body.messages || [],
       stream: !!body.stream,
       temperature: 0.85,
@@ -119,9 +125,9 @@ const server = http.createServer(async (req, res) => {
     };
     let upstream;
     try {
-      upstream = await fetch(UPSTREAM + "/chat/completions", {
+      upstream = await fetch((useOR ? OPENROUTER_UP : UPSTREAM) + "/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + MODEL_KEY },
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + (useOR ? OPENROUTER_KEY : MODEL_KEY) },
         body: JSON.stringify(payload),
       });
     } catch (e) {

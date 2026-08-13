@@ -515,6 +515,8 @@
   });
 
   /* ----- 实时语音通话 ----- */
+  var CALL_MODEL = "deepseek-v4-flash-0731"; // 通话专用：订阅免费、响应快，适合口语对话
+  var callPrevModel = null;
   var call = { on: false, state: "idle", t0: 0, timer: null, rec: null };
   function callState(s) { call.state = s; $("callStatus").textContent = ({ listening: "在听…", thinking: "思考中…", speaking: "说话中…", idle: "接通中…" })[s] || s; $("callOverlay").classList.toggle("talking", s === "speaking"); }
   function callTick() { var s = Math.floor((Date.now() - call.t0) / 1000); $("callTimer").textContent = ("0" + Math.floor(s / 60)).slice(-2) + ":" + ("0" + (s % 60)).slice(-2); }
@@ -526,6 +528,7 @@
     stopSpeak(); if (micOn) { micOn = false; try { micRec.stop(); } catch (e) {} }
     detectProxy().then(function () {
       if (needsKey()) { toast("先去设置里填一下 API Key 哦"); openSheet("sheetSettings"); return; }
+      if (proxyMode) { callPrevModel = api.model; api.model = CALL_MODEL; } // 通话自动切到语音专用模型
       call.on = true; call.t0 = Date.now();
       $("callName").textContent = active.name || "TA"; $("callAvatar").textContent = initial(); $("callLine").textContent = "";
       $("callOverlay").classList.add("show"); callTick(); call.timer = setInterval(callTick, 1000);
@@ -567,6 +570,7 @@
   function endCall() {
     if (!call.on) return;
     call.on = false; clearInterval(call.timer); callStopRec(); stopSpeak();
+    if (callPrevModel !== null) { api.model = callPrevModel; callPrevModel = null; } // 恢复原聊天模型
     $("callOverlay").classList.remove("show"); $("callOverlay").classList.remove("talking");
   }
   $("btnCall").addEventListener("click", startCall);
