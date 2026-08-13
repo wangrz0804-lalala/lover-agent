@@ -8,7 +8,7 @@ const path = require("path");
 const PORT = 9000;
 const APP_TOKEN = process.env.APP_TOKEN || "bd6829b897af9f18895b5fe5";
 const MODEL_KEY = process.env.MODEL_KEY || "";
-const UPSTREAM = (process.env.UPSTREAM || "https://ws-92p7q0447oxhg6qo.cn-beijing.maas.aliyuncs.com/compatible-mode/v1").replace(/\/+$/, "");
+const UPSTREAM = (process.env.UPSTREAM || "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1").replace(/\/+$/, "");
 const OSS_AK_ID = process.env.OSS_AK_ID || "";
 const OSS_AK_SECRET = process.env.OSS_AK_SECRET || "";
 const OSS_BUCKET = process.env.OSS_BUCKET || "lover-sync-wrz0804";
@@ -85,6 +85,18 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "GET") {
     if (url === "/health") return json(res, 200, { ok: true, service: "lover-api" });
+    if (url === "/models") {
+      if (req.headers["x-app-token"] !== APP_TOKEN) return json(res, 401, { error: "token 校验失败" });
+      if (!MODEL_KEY) return json(res, 500, { error: "服务端未配置 MODEL_KEY" });
+      let r;
+      try {
+        r = await fetch(UPSTREAM + "/models", { headers: { "Authorization": "Bearer " + MODEL_KEY } });
+      } catch (e) { return json(res, 502, { error: "模型服务连接失败" }); }
+      const text = await r.text();
+      cors(res);
+      res.writeHead(r.status, { "Content-Type": "application/json; charset=utf-8" });
+      return res.end(text);
+    }
     const entry = STATIC_FILES[url];
     if (entry) return serveStatic(res, entry);
     return json(res, 404, { error: "not found" });

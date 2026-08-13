@@ -127,12 +127,12 @@
   .sheet h2 { font-size: 17px; margin-bottom: 14px; }
   .field { margin-bottom: 13px; }
   .field label { display: block; font-size: 13px; color: var(--ink-2); margin-bottom: 5px; }
-  .field input, .field textarea {
+  .field input, .field textarea, .field select {
     width: 100%; border: 1px solid var(--line); border-radius: 11px; background: #fbf9f6;
     padding: 9px 12px; font-size: 14px; outline: none; font-family: inherit; color: var(--ink);
   }
   .field textarea { min-height: 96px; resize: vertical; line-height: 1.5; }
-  .field input:focus, .field textarea:focus { border-color: var(--accent); }
+  .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--accent); }
   .row2 { display: flex; gap: 10px; }
   .row2 .field { flex: 1; }
   .btn {
@@ -211,17 +211,21 @@
     <div class="row2">
       <div class="field">
         <label>模型</label>
-        <input id="fModel" placeholder="qwen3.8-max">
+        <select id="fModelSel"></select>
       </div>
       <div class="field">
         <label>你的昵称</label>
         <input id="fMyName" placeholder="怎么称呼你">
       </div>
     </div>
+    <div class="field" id="fModelCustomWrap" style="display:none">
+      <label>自定义模型 ID</label>
+      <input id="fModel" placeholder="输入模型 ID，如 qwen3.8-max">
+    </div>
     <button class="btn primary" id="btnSave">保存</button>
     <button class="btn ghost" id="btnTest">测试连接</button>
     <button class="btn danger" id="btnClear">清空与当前人设的聊天记录和记忆</button>
-    <div class="hint">默认走云端代理，无需填写 API Key，开箱即用。兼容任何 OpenAI 格式接口：改成自定义地址直连时，Key 只保存在你本机浏览器里。云端多端同步已自动开启，无缝同步记录与配置。</div>
+    <div class="hint">默认走云端代理，无需填写 API Key，开箱即用。模型下拉打开时会自动拉取订阅包含的模型，也可选「自定义模型…」手动输入 ID。兼容任何 OpenAI 格式接口：改成自定义地址直连时，Key 只保存在你本机浏览器里。云端多端同步已自动开启，无缝同步记录与配置。</div>
   </div>
 
   <!-- 人设管理 -->
@@ -427,7 +431,7 @@
 
   function openSheet(id) {
     closeSheets();
-    if (id === "sheetSettings") { $("fBase").value = api.baseUrl; $("fKey").value = api.apiKey; $("fModel").value = api.model; $("fMyName").value = api.myName; } else { renderProfiles(); editingId = active.id; fillEditForm(); }
+    if (id === "sheetSettings") { $("fBase").value = api.baseUrl; $("fKey").value = api.apiKey; $("fModel").value = api.model; $("fMyName").value = api.myName; refreshModelOptions(); } else { renderProfiles(); editingId = active.id; fillEditForm(); }
     $("mask").classList.add("show"); $(id).classList.add("show");
   }
   function closeSheets() { $("mask").classList.remove("show"); $("sheetSettings").classList.remove("show"); $("sheetProfiles").classList.remove("show"); }
@@ -450,8 +454,31 @@
   async function addProfile() { var p = { id: "p" + Date.now(), name: "新人设", persona: DEFAULT_PERSONA }; profiles.push(p); save("profiles", profiles); editingId = p.id; await switchProfile(p.id); openSheet("sheetProfiles"); editingId = p.id; fillEditForm(); }
   async function delProfile() { if (profiles.length <= 1) { toast("至少保留一个人设"); return; } var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; if (!confirm("删除人设「" + p.name + "」？和TA的聊天记录也会一起删掉。")) return; profiles = profiles.filter(function (x) { return x.id !== p.id; }); save("profiles", profiles); try { localStorage.removeItem("lover.msg." + p.id); localStorage.removeItem("lover.mem." + p.id); } catch (e) {} if (editingId === p.id) editingId = profiles[0].id; if (active.id === p.id) { active = profiles[0]; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); } renderProfiles(); fillEditForm(); toast("已删除"); }
 
-  function saveSettings() { api.baseUrl = $("fBase").value.trim() || DEFAULT_API.baseUrl; api.apiKey = $("fKey").value.trim(); api.model = $("fModel").value.trim() || DEFAULT_API.model; api.myName = $("fMyName").value.trim(); save("api", api); closeSheets(); toast("已保存"); }
-  function testConn() { var base = $("fBase").value.trim() || DEFAULT_API.baseUrl; var key = $("fKey").value.trim(); var model = $("fModel").value.trim() || DEFAULT_API.model; if (!proxyMode && !key) { toast("先填 API Key"); return; } toast("测试中…"); llmFetchWith({ baseUrl: base, apiKey: key, model: model }, [{ role: "user", content: "连通性测试，请回复：在的" }], false).then(function (r) { return r.json(); }).then(function (j) { if (j.error) { toast("连接失败：" + (typeof j.error === "string" ? j.error : (j.error.message || JSON.stringify(j.error)))); return; } var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; toast(c ? "连接成功，TA 说：" + c.slice(0, 30) : "连接成功"); }).catch(function () { toast("连接失败：检查网络、API 地址或 Key"); }); }
+  function effectiveModelInput() { var v = $("fModelSel").value; return (v && v !== "__custom__") ? v : $("fModel").value.trim(); }
+  function refreshModelOptions() {
+    var sel = $("fModelSel"); var cur = $("fModel").value.trim() || DEFAULT_API.model;
+    sel.innerHTML = "";
+    var o = document.createElement("option"); o.value = cur; o.textContent = cur; sel.appendChild(o);
+    var c = document.createElement("option"); c.value = "__custom__"; c.textContent = "自定义模型…"; sel.appendChild(c);
+    sel.value = cur; $("fModelCustomWrap").style.display = "none";
+    var base = ($("fBase").value.trim() || DEFAULT_API.baseUrl).replace(/\/+$/, "");
+    var h = { "X-App-Token": APP_TOKEN }; var k = $("fKey").value.trim(); if (k) h["Authorization"] = "Bearer " + k;
+    fetch(base + "/models", { headers: h }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      var list = (d && d.data) ? d.data.map(function (m) { return m.id; }) : [];
+      if (!list.length) return;
+      sel.innerHTML = "";
+      list.forEach(function (id) { var op = document.createElement("option"); op.value = id; op.textContent = id; sel.appendChild(op); });
+      var cc = document.createElement("option"); cc.value = "__custom__"; cc.textContent = "自定义模型…"; sel.appendChild(cc);
+      if (list.indexOf(cur) > -1) { sel.value = cur; } else { sel.value = "__custom__"; $("fModel").value = cur; $("fModelCustomWrap").style.display = ""; }
+    }).catch(function () {});
+    sel.onchange = function () {
+      if (sel.value === "__custom__") { $("fModelCustomWrap").style.display = ""; $("fModel").focus(); }
+      else $("fModelCustomWrap").style.display = "none";
+    };
+  }
+
+  function saveSettings() { api.baseUrl = $("fBase").value.trim() || DEFAULT_API.baseUrl; api.apiKey = $("fKey").value.trim(); api.model = effectiveModelInput() || DEFAULT_API.model; api.myName = $("fMyName").value.trim(); save("api", api); closeSheets(); toast("已保存"); }
+  function testConn() { var base = $("fBase").value.trim() || DEFAULT_API.baseUrl; var key = $("fKey").value.trim(); var model = effectiveModelInput() || DEFAULT_API.model; if (!proxyMode && !key) { toast("先填 API Key"); return; } toast("测试中…"); llmFetchWith({ baseUrl: base, apiKey: key, model: model }, [{ role: "user", content: "连通性测试，请回复：在的" }], false).then(function (r) { return r.json(); }).then(function (j) { if (j.error) { toast("连接失败：" + (typeof j.error === "string" ? j.error : (j.error.message || JSON.stringify(j.error)))); return; } var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; toast(c ? "连接成功，TA 说：" + c.slice(0, 30) : "连接成功"); }).catch(function () { toast("连接失败：检查网络、API 地址或 Key"); }); }
   function clearConv() { if (!confirm("清空与「" + active.name + "」的聊天记录和记忆？")) return; messages = []; memorySummary = ""; saveMsgs(); save("mem." + active.id, ""); renderAll(); greetIfEmpty(); closeSheets(); }
 
   function greetIfEmpty() { if (messages.some(function (m) { return m.role === "assistant"; })) return; if (needsKey()) { addMsg("assistant", "（设置好 API Key 之后，我就能开始陪你聊天啦。点右上角的齿轮。）"); return; } busy = true; updateSend(); showTyping(); var payload = [{ role: "system", content: systemPrompt() }, { role: "user", content: "（这是我们的第一句对话，请你主动打个招呼，自然一点，别太长。）" }]; detectProxy().then(function () { return llmFetch(payload, false); }).then(function (r) { return r.json(); }).then(function (j) { hideTyping(); var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; addMsg("assistant", (c || "在呢，你来啦。").trim()); }).catch(function () { hideTyping(); addMsg("assistant", "在呢，你来啦。（开场白生成失败，不影响聊天）"); }).then(function () { busy = false; updateSend(); }); }
