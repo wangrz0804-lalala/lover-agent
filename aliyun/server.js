@@ -122,6 +122,7 @@ const server = http.createServer(async (req, res) => {
       stream: !!body.stream,
       temperature: 0.85,
       top_p: 0.9,
+      max_tokens: 800, // 输出安全阀，防失控长回复烧 token
     };
     let upstream;
     try {
