@@ -467,6 +467,8 @@
     await initApp();
   }
   async function migrateLegacy() {
+    if (localStorage.getItem("lover.migrated")) return; // 旧数据只收纳一次，之后新账号不再继承
+    try { localStorage.setItem("lover.migrated", ACCT || "1"); } catch (e) {}
     if (localStorage.getItem(storeKey("profiles"))) return; // 账号里已有数据就不迁移
     var moved = [];
     var plain = ["api", "profiles", "lastActive", "settings", "messages", "memorySummary"];
