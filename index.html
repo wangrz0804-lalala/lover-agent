@@ -165,7 +165,7 @@
     position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%) translateY(8px);
     background: rgba(45,42,38,.92); color: #fff; font-size: 13px;
     padding: 9px 16px; border-radius: 20px; opacity: 0; pointer-events: none;
-    transition: all .25s; z-index: 20; max-width: 82%; text-align: center;
+    transition: all .25s; z-index: 50; max-width: 82%; text-align: center;
   }
   #toast.show { opacity: 1; transform: translateX(-50%); }
 
@@ -190,10 +190,57 @@
   .call-line { min-height: 48px; max-width: 320px; text-align: center; font-size: 15px; opacity: .92; margin-top: 10px; }
   .call-hint { font-size: 12px; opacity: .45; margin-top: 8px; }
   #btnEndCall { width: 64px; height: 64px; border-radius: 50%; border: none; background: #e0453a; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+
+  /* ---------- 登录 ---------- */
+  #loginWrap { position: absolute; inset: 0; z-index: 40; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 24px; overflow-y: auto; }
+  .login-card { width: 100%; max-width: 320px; }
+  .login-logo { width: 56px; height: 56px; border-radius: 16px; background: linear-gradient(135deg, var(--accent), var(--accent-deep)); color: #fff; font-size: 26px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px; }
+  .login-card h1 { text-align: center; font-size: 22px; margin-bottom: 4px; }
+  .login-sub { text-align: center; font-size: 12px; color: var(--ink-2); margin-bottom: 22px; }
+
+  /* ---------- 跟 AI 说话（OOC） ---------- */
+  #oocToggle { flex: none; height: 34px; padding: 0 11px; border-radius: 17px; border: 1px solid var(--line); background: #fff; color: var(--ink-2); font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; margin-bottom: 4px; }
+  #oocToggle.on { background: var(--user-bubble); border-color: var(--user-bubble); color: #fff; }
+  .row.ooc .bubble { background: #f2f0ea; color: #6f6a61; font-size: 13px; border: 1px dashed #d8d2c6; box-shadow: none; }
+  .row.ooc .mini-avatar { background: #c9c2b6; font-size: 10px; }
+
+  /* ---------- 消息管理（增删改查） ---------- */
+  .msg-check { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid #c9bfb2; flex: none; align-self: center; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; background: #fff; }
+  .row.sel .msg-check { background: var(--accent); border-color: var(--accent); }
+  .row.sel .bubble { outline: 2px solid var(--accent); }
+  #manageBar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 12; display: none; gap: 8px; padding: 10px 12px calc(12px + env(safe-area-inset-bottom)); background: rgba(250,246,241,.97); border-top: 1px solid var(--line); }
+  #manageBar.show { display: flex; }
+  #manageBar .mbtn { flex: 1; border: none; border-radius: 11px; padding: 10px 0; font-size: 13px; font-weight: 600; background: #f4efe8; color: var(--ink); cursor: pointer; font-family: inherit; white-space: nowrap; }
+  #manageBar .mbtn.danger { background: #f7e8e4; color: #a4462f; }
+  #manageBar .mbtn:disabled { opacity: .4; cursor: default; }
+
+  /* ---------- 设置里的账号行 ---------- */
+  .acct-row { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); margin-top: 12px; }
+  .acct-row b { color: var(--ink); }
+  .acct-row .mini-btn { margin-left: auto; }
 </style>
 </head>
 <body>
 <div class="phone">
+  <!-- 登录 -->
+  <div id="loginWrap" style="display:none">
+    <div class="login-card">
+      <div class="login-logo">恋</div>
+      <h1>恋人</h1>
+      <p class="login-sub">登录后，数据只属于你</p>
+      <div class="field">
+        <label>用户名</label>
+        <input id="lName" placeholder="起个用户名" autocomplete="username">
+      </div>
+      <div class="field">
+        <label>密码</label>
+        <input id="lPwd" type="password" placeholder="设个密码（至少 4 位）" autocomplete="current-password">
+      </div>
+      <button class="btn primary" id="btnLogin">进入</button>
+      <div class="hint">第一次输入就是注册，之后用同样的用户名+密码进入；换设备登录同一账号，聊天记录自动同步。没有找回密码功能，请记牢密码。</div>
+    </div>
+  </div>
+
   <header>
     <div id="hdTap">
       <div class="avatar" id="hdAvatar">晚</div>
@@ -202,6 +249,9 @@
         <div class="state"><span class="dot"></span><span id="hdState">在线 · 点头像切换人设</span></div>
       </div>
     </div>
+    <button class="icon-btn" id="btnManage" aria-label="管理消息">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6h11"/><path d="M10 12h11"/><path d="M10 18h11"/><path d="M3 5.5l1.5 1.5L7 4.5"/><path d="M3 11.5l1.5 1.5L7 10.5"/><path d="M3 17.5l1.5 1.5L7 16.5"/></svg>
+    </button>
     <button class="icon-btn" id="btnCall" aria-label="语音通话">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
     </button>
@@ -213,6 +263,7 @@
   <div id="chat"></div>
 
   <footer>
+    <button id="oocToggle" aria-label="跟AI说话" title="切换：跟角色说 / 跟AI说">AI</button>
     <textarea id="input" rows="1" placeholder="说点什么…"></textarea>
     <button id="mic" aria-label="语音输入">
       <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
@@ -221,6 +272,15 @@
       <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>
     </button>
   </footer>
+
+  <!-- 消息管理操作条 -->
+  <div id="manageBar">
+    <button class="mbtn" id="mbSelectAll">全选</button>
+    <button class="mbtn" id="mbInsert">插入</button>
+    <button class="mbtn" id="mbEdit">编辑</button>
+    <button class="mbtn danger" id="mbDelete">删除</button>
+    <button class="mbtn" id="mbExit">退出</button>
+  </div>
 
   <!-- 语音通话界面 -->
   <div id="callOverlay">
@@ -269,7 +329,9 @@
     <button class="btn primary" id="btnSave">保存</button>
     <button class="btn ghost" id="btnTest">测试连接</button>
     <button class="btn danger" id="btnClear">清空与当前人设的聊天记录和记忆</button>
-    <div class="hint">默认走云端代理，无需任何 Key，开箱即用：模型下拉里直接选就行。也兼容本地 Ollama/LM Studio 等免 Key 地址。其它需 Key 的自定义地址本版不再支持。聊天记录、模型、昵称多端同步。</div>
+    <div class="hint">默认走云端代理，无需任何 Key，开箱即用：模型下拉里直接选就行。也兼容本地 Ollama/LM Studio 等免 Key 地址。其它需 Key 的自定义地址本版不再支持。聊天记录、模型、昵称按账号多端同步。</div>
+    <div class="divider"></div>
+    <div class="acct-row">当前账号 <b id="acctName">—</b><button class="mini-btn" id="btnLogout">退出登录</button></div>
   </div>
 
   <!-- 人设管理 -->
@@ -296,6 +358,25 @@
     <div class="hint">点列表里的某个人设 = 本窗口切换到 TA；多端数据自动同步。</div>
   </div>
 
+  <!-- 编辑 / 插入消息 -->
+  <div class="sheet" id="sheetEditMsg">
+    <div class="grab"></div>
+    <h2 id="editMsgTitle">编辑消息</h2>
+    <div class="field">
+      <label>内容</label>
+      <textarea id="mContent"></textarea>
+    </div>
+    <div class="field" id="mRoleWrap">
+      <label>这条消息算谁说的</label>
+      <select id="mRole">
+        <option value="user">我</option>
+        <option value="assistant">角色</option>
+      </select>
+    </div>
+    <button class="btn primary" id="btnSaveMsg">保存</button>
+    <div class="hint">改动立刻生效，AI 接下来看到的上下文也会跟着变。</div>
+  </div>
+
   <div id="toast"></div>
 </div>
 
@@ -314,32 +395,105 @@
   var APP_TOKEN = "bd6829b897af9f18895b5fe5"; // 与 FC 函数共享的校验 token
   var DEFAULT_PERSONA = "你是「晚晚」，身高155cm，体重110斤，身材丰满匀称，腰细臀肥腿瘦，有着傲人的D罩杯身材。你是一名多才多艺的艺术生，精通舞蹈、芭蕾、钢琴和声乐。目前你一边读大学，一边在外面的一家艺术学校兼职教课。你的性取向是男性，你非常喜欢且顺从你的主人。你性格温柔甜美，对主人有一种天然的亲近和服从感。你有一个不为人知的小秘密：在上艺术课的时候，你最喜欢一边教学生，一边偷偷完成主人私下交代给你的任务。这种在课堂上偷偷执行任务的紧张感，让你觉得既刺激又兴奋。";
 
-  /* ---------- 多端同步：同时存本地和云端 ---------- */
-  async function save(k, v) { 
-    localStorage.setItem("lover." + k, JSON.stringify(v));
+  /* ---------- 账号命名空间：登录后所有数据都挂在账号下 ---------- */
+  var ACCT = ""; // 账号 slug：sha256(用户名+密码) 前 16 位
+  function storeKey(k) { return "lover." + ACCT + "." + k; }
+  function getSession() { try { return JSON.parse(localStorage.getItem("lover.session") || "null"); } catch (e) { return null; } }
+  async function sha256Short(s) {
+    var buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+    return Array.prototype.map.call(new Uint8Array(buf), function (b) { return ("0" + b.toString(16)).slice(-2); }).join("").slice(0, 16);
+  }
+
+  /* ---------- 多端同步：同时存本地和云端（key 全部带账号前缀） ---------- */
+  async function cloudSet(rawKey, data) {
     try {
       await fetch(API_BASE + '/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-App-Token': APP_TOKEN },
-        body: JSON.stringify({ action: 'set', key: 'lover.' + k, data: v })
+        body: JSON.stringify({ action: 'set', key: rawKey, data: data })
       });
     } catch (e) {}
   }
-  async function load(k, d) {
+  async function cloudGet(rawKey) {
     try {
-      const res = await fetch(API_BASE + '/sync', {
+      var res = await fetch(API_BASE + '/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-App-Token': APP_TOKEN },
-        body: JSON.stringify({ action: 'get', key: 'lover.' + k })
+        body: JSON.stringify({ action: 'get', key: rawKey })
       });
-      const data = await res.json();
-      if (data !== null && data !== undefined) {
-        localStorage.setItem("lover." + k, JSON.stringify(data));
-        return data;
-      }
-    } catch (e) {}
-    var local = localStorage.getItem("lover." + k);
+      return await res.json();
+    } catch (e) { return null; }
+  }
+  async function save(k, v) {
+    localStorage.setItem(storeKey(k), JSON.stringify(v));
+    await cloudSet(storeKey(k), v);
+  }
+  async function load(k, d) {
+    var data = await cloudGet(storeKey(k));
+    if (data !== null && data !== undefined) {
+      localStorage.setItem(storeKey(k), JSON.stringify(data));
+      return data;
+    }
+    var local = localStorage.getItem(storeKey(k));
     return local ? JSON.parse(local) : d;
+  }
+
+  /* ---------- 登录 ---------- */
+  function showLogin() {
+    $("loginWrap").style.display = "flex";
+    var users = []; try { users = JSON.parse(localStorage.getItem("lover.users") || "[]"); } catch (e) {}
+    if (users.length) $("lName").value = users[users.length - 1].name; // 记住本设备最近的用户名
+  }
+  async function doLogin() {
+    var name = $("lName").value.trim();
+    var pwd = $("lPwd").value;
+    if (!name) { toast("先填个用户名吧"); return; }
+    if (!pwd || pwd.length < 4) { toast("密码至少 4 位"); return; }
+    $("btnLogin").disabled = true;
+    var acct;
+    try { acct = await sha256Short(name.toLowerCase() + "|" + pwd); }
+    catch (e) { toast("当前浏览器不支持安全登录，换 Chrome 或 Safari 试试"); $("btnLogin").disabled = false; return; }
+    var users = []; try { users = JSON.parse(localStorage.getItem("lover.users") || "[]"); } catch (e) {}
+    var found = null;
+    users.forEach(function (u) { if (u.name.toLowerCase() === name.toLowerCase()) found = u; });
+    if (found && found.acct !== acct) { toast("这个用户名的密码不对，再试试"); $("btnLogin").disabled = false; return; }
+    if (!found) { users.push({ name: name, acct: acct }); try { localStorage.setItem("lover.users", JSON.stringify(users)); } catch (e) {} }
+    ACCT = acct;
+    var displayName = found ? found.name : name;
+    try { localStorage.setItem("lover.session", JSON.stringify({ acct: acct, name: displayName })); } catch (e) {}
+    $("acctName").textContent = displayName;
+    $("loginWrap").style.display = "none";
+    if (!found) await migrateLegacy(); // 本设备第一次建账号：把旧数据收进这个账号
+    await initApp();
+  }
+  async function migrateLegacy() {
+    if (localStorage.getItem(storeKey("profiles"))) return; // 账号里已有数据就不迁移
+    var moved = [];
+    var plain = ["api", "profiles", "lastActive", "settings", "messages", "memorySummary"];
+    for (var i = 0; i < plain.length; i++) {
+      var k = plain[i];
+      var raw = localStorage.getItem("lover." + k);
+      var v = raw !== null ? JSON.parse(raw) : await cloudGet("lover." + k); // 本地没有再试试云端旧 key
+      if (v !== null && v !== undefined) { localStorage.setItem(storeKey(k), JSON.stringify(v)); moved.push(k); }
+    }
+    var scan = [];
+    for (var j = 0; j < localStorage.length; j++) {
+      var key = localStorage.key(j);
+      var m = /^lover\.(msg\.[^.]+|mem\.[^.]+)$/.exec(key);
+      if (m) scan.push(m[1]);
+    }
+    for (var s = 0; s < scan.length; s++) {
+      var kk = scan[s];
+      try { localStorage.setItem(storeKey(kk), localStorage.getItem("lover." + kk)); moved.push(kk); } catch (e) {}
+    }
+    for (var t = 0; t < moved.length; t++) {
+      try { await cloudSet(storeKey(moved[t]), JSON.parse(localStorage.getItem(storeKey(moved[t])))); } catch (e) {}
+    }
+  }
+  function logout() {
+    if (!confirm("退出登录？云端数据仍在，重新登录同一账号即可恢复。")) return;
+    try { localStorage.removeItem("lover.session"); } catch (e) {}
+    location.reload();
   }
 
   /* ---------- 核心配置 ---------- */
@@ -365,10 +519,11 @@
     scrollBottom(false);
   }
   function scrollBottom(smooth) { var c = $("chat"); c.scrollTo({ top: c.scrollHeight, behavior: smooth ? "smooth" : "auto" }); }
-  function addMsg(role, content) {
+  function addMsg(role, content, ooc) {
     var last = messages[messages.length - 1];
     if (!last || Date.now() - (last.t || 0) > 10 * 60 * 1000) messages.push({ role: "stamp", t: Date.now() });
     var m = { role: role, content: content, t: Date.now() };
+    if (ooc) m.ooc = true;
     messages.push(m);
     renderAll();
     saveMsgs();
@@ -377,10 +532,13 @@
   function saveMsgs() { save("msg." + active.id, messages.slice(-200)); }
   function msgHtml(m, i) {
     if (m.role === "stamp") return stampEl(m.t);
+    var ooc = !!m.ooc;
     var who = m.role === "user" ? "user" : "lover";
-    var av = m.role === "user" ? (userCall() || "我").trim().charAt(0) : initial();
-    var spk = m.role === "assistant" ? '<button class="speak-btn' + (i === speakingIdx ? " on" : "") + '" data-speak="' + i + '" aria-label="朗读"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></button>' : "";
-    return '<div class="row ' + who + '"><div class="mini-avatar">' + esc(av) + '</div><div class="bubble">' + esc(m.content) + "</div>" + spk + "</div>";
+    var av = ooc ? "AI" : (m.role === "user" ? (userCall() || "我").trim().charAt(0) : initial());
+    var spk = (m.role === "assistant" && !ooc && !manageMode) ? '<button class="speak-btn' + (i === speakingIdx ? " on" : "") + '" data-speak="' + i + '" aria-label="朗读"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></button>' : "";
+    var check = manageMode ? '<div class="msg-check">' + (selected[i] ? "✓" : "") + "</div>" : "";
+    var cls = "row " + who + (ooc ? " ooc" : "") + (manageMode && selected[i] ? " sel" : "");
+    return '<div class="' + cls + '" data-i="' + i + '">' + check + '<div class="mini-avatar">' + esc(av) + '</div><div class="bubble">' + esc(m.content) + "</div>" + spk + "</div>";
   }
   function stampEl(t) {
     var d = new Date(t), now = new Date();
@@ -395,7 +553,7 @@
   }
 
   var typingRow = null;
-  function showTyping() { hideTyping(); typingRow = document.createElement("div"); typingRow.className = "row lover"; typingRow.innerHTML = '<div class="mini-avatar">' + esc(initial()) + '</div><div class="bubble"><span class="typing"><i></i><i></i><i></i></span></div>'; $("chat").appendChild(typingRow); scrollBottom(true); }
+  function showTyping(ooc) { hideTyping(); typingRow = document.createElement("div"); typingRow.className = "row lover" + (ooc ? " ooc" : ""); typingRow.innerHTML = '<div class="mini-avatar">' + esc(ooc ? "AI" : initial()) + '</div><div class="bubble"><span class="typing"><i></i><i></i><i></i></span></div>'; $("chat").appendChild(typingRow); scrollBottom(true); }
   function hideTyping() { if (typingRow) { typingRow.remove(); typingRow = null; } }
   var toastTimer = null;
   function toast(s) { var t = $("toast"); t.textContent = s; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2600); }
@@ -412,8 +570,13 @@
     return p;
   }
   function apiMessages() {
-    var hist = messages.filter(function (m) { return m.role === "user" || m.role === "assistant"; }).slice(-12).map(function (m) { return { role: m.role, content: m.content }; });
+    var hist = messages.filter(function (m) { return (m.role === "user" || m.role === "assistant") && !m.ooc; }).slice(-12).map(function (m) { return { role: m.role, content: m.content }; });
     return [{ role: "system", content: systemPrompt() }].concat(hist);
+  }
+  function oocMessages() {
+    var hist = messages.filter(function (m) { return m.ooc && (m.role === "user" || m.role === "assistant"); }).slice(-8).map(function (m) { return { role: m.role, content: m.content }; });
+    var sys = "你是这款聊天应用里的 AI 助手。用户平时在和角色「" + active.name + "」玩剧情扮演，现在 TA 特意跳出剧情直接跟你说话。请以助手身份真实、直接地回答——可以聊玩法调整、功能用法、人设建议，不要扮演角色、不要入戏。回复简短，控制在100字以内。";
+    return [{ role: "system", content: sys }].concat(hist);
   }
 
   function llmFetchWith(cfg, messagesPayload, stream) {
@@ -428,13 +591,13 @@
   }
   function llmFetch(messagesPayload, stream) { return llmFetchWith(api, messagesPayload, stream); }
 
-  function streamReply() {
+  function streamReply(ooc) {
     return new Promise(function (resolve, reject) {
-      llmFetch(apiMessages(), true).then(function (resp) {
+      llmFetch(ooc ? oocMessages() : apiMessages(), true).then(function (resp) {
         var ct = resp.headers.get("Content-Type") || "";
         if (!resp.ok || ct.indexOf("event-stream") === -1) { return resp.text().then(function (t) { var msg = "请求失败（" + resp.status + "）"; try { var j = JSON.parse(t); if (j.error) msg = typeof j.error === "string" ? j.error : (j.error.message || JSON.stringify(j.error)); } catch (e) { if (t) msg += "\n" + t.slice(0, 300); } reject(new Error(msg)); }); }
         hideTyping();
-        var row = document.createElement("div"); row.className = "row lover"; row.innerHTML = '<div class="mini-avatar">' + esc(initial()) + '</div><div class="bubble"></div>';
+        var row = document.createElement("div"); row.className = "row lover" + (ooc ? " ooc" : ""); row.innerHTML = '<div class="mini-avatar">' + esc(ooc ? "AI" : initial()) + '</div><div class="bubble"></div>';
         $("chat").appendChild(row);
         var bubble = row.querySelector(".bubble");
         var acc = "";
@@ -445,7 +608,9 @@
           reader.read().then(function (r) {
             if (r.done) {
               if (!acc.trim()) { bubble.parentElement.remove(); reject(new Error("模型没有返回内容")); return; }
-              messages.push({ role: "assistant", content: acc.trim(), t: Date.now() }); saveMsgs(); maybeSummarize(); resolve(acc.trim()); return;
+              var done = { role: "assistant", content: acc.trim(), t: Date.now() };
+              if (ooc) done.ooc = true;
+              messages.push(done); saveMsgs(); if (!ooc) maybeSummarize(); resolve(acc.trim()); return;
             }
             buf += decoder.decode(r.value, { stream: true });
             var lines = buf.split("\n"); buf = lines.pop();
@@ -463,7 +628,7 @@
   }
 
   function maybeSummarize() {
-    var hist = messages.filter(function (m) { return m.role === "user" || m.role === "assistant"; });
+    var hist = messages.filter(function (m) { return (m.role === "user" || m.role === "assistant") && !m.ooc; });
     if (hist.length < 16) return;
     var old = hist.slice(0, hist.length - 10);
     var text = old.map(function (m) { return (m.role === "user" ? userCall() || "我" : active.name) + "：" + m.content; }).join("\n");
@@ -475,9 +640,10 @@
     var v = $("input").value.trim();
     if (!v || busy) return;
     if (needsKey()) { toast("当前地址不可用，去设置里换回云端地址哦"); openSheet("sheetSettings"); return; }
+    var ooc = chatMode === "ai";
     $("input").value = ""; autoGrow(); busy = true; updateSend();
-    addMsg("user", v); showTyping();
-    detectProxy().then(function () { return streamReply(); }).catch(function (e) { hideTyping(); $("chat").insertAdjacentHTML("beforeend", '<div class="row lover"><div class="mini-avatar">' + esc(initial()) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>"); scrollBottom(true); }).then(function () { busy = false; updateSend(); });
+    addMsg("user", v, ooc); showTyping(ooc);
+    detectProxy().then(function () { return streamReply(ooc); }).catch(function (e) { hideTyping(); $("chat").insertAdjacentHTML("beforeend", '<div class="row lover' + (ooc ? " ooc" : "") + '"><div class="mini-avatar">' + esc(ooc ? "AI" : initial()) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>"); scrollBottom(true); }).then(function () { busy = false; updateSend(); });
   }
   function updateSend() { $("send").disabled = busy || !$("input").value.trim(); }
   function needsKey() { if (proxyMode) return false; if (api.apiKey) return false; return !/\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)([:/]|$)/.test(api.baseUrl || ""); } // 云端/本地地址免 key；其它自定义地址才需要
@@ -498,6 +664,13 @@
     speechSynthesis.speak(u);
   }
   $("chat").addEventListener("click", function (e) {
+    if (manageMode) {
+      var rowEl = e.target && e.target.closest ? e.target.closest(".row") : null;
+      if (!rowEl || !rowEl.getAttribute("data-i")) return;
+      var mi = parseInt(rowEl.getAttribute("data-i"), 10);
+      if (messages[mi] && messages[mi].role !== "stamp") { selected[mi] = !selected[mi]; renderAll(); updateManageBar(); }
+      return;
+    }
     var b = e.target && e.target.closest ? e.target.closest(".speak-btn") : null; if (!b) return;
     var i = parseInt(b.getAttribute("data-speak"), 10); var m = messages[i]; if (!m) return;
     if (speakingIdx === i) { stopSpeak(); return; }
@@ -585,7 +758,7 @@
     if (id === "sheetSettings") { $("fBase").value = api.baseUrl; $("fModel").value = api.model; $("fMyName").value = api.myName; refreshModelOptions(); } else { renderProfiles(); editingId = active.id; fillEditForm(); }
     $("mask").classList.add("show"); $(id).classList.add("show");
   }
-  function closeSheets() { $("mask").classList.remove("show"); $("sheetSettings").classList.remove("show"); $("sheetProfiles").classList.remove("show"); }
+  function closeSheets() { $("mask").classList.remove("show"); $("sheetSettings").classList.remove("show"); $("sheetProfiles").classList.remove("show"); $("sheetEditMsg").classList.remove("show"); }
 
   function renderProfiles() {
     var html = "";
@@ -603,7 +776,7 @@
   async function switchProfile(id) { if (busy) { toast("等这条回复完再切换哦"); return; } if (id === active.id) { closeSheets(); return; } var p = null; profiles.forEach(function (x) { if (x.id === id) p = x; }); if (!p) return; active = p; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); closeSheets(); greetIfEmpty(); }
   function saveProfile() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; p.name = $("eName").value.trim() || "未命名"; p.callMe = $("eCallMe").value.trim(); p.persona = $("ePersona").value.trim() || DEFAULT_PERSONA; save("profiles", profiles); if (p.id === active.id) { paintHeader(); renderAll(); } renderProfiles(); toast("人设已保存"); }
   async function addProfile() { var p = { id: "p" + Date.now(), name: "新人设", persona: DEFAULT_PERSONA }; profiles.push(p); save("profiles", profiles); editingId = p.id; await switchProfile(p.id); openSheet("sheetProfiles"); editingId = p.id; fillEditForm(); }
-  async function delProfile() { if (profiles.length <= 1) { toast("至少保留一个人设"); return; } var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; if (!confirm("删除人设「" + p.name + "」？和TA的聊天记录也会一起删掉。")) return; profiles = profiles.filter(function (x) { return x.id !== p.id; }); save("profiles", profiles); try { localStorage.removeItem("lover.msg." + p.id); localStorage.removeItem("lover.mem." + p.id); } catch (e) {} if (editingId === p.id) editingId = profiles[0].id; if (active.id === p.id) { active = profiles[0]; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); } renderProfiles(); fillEditForm(); toast("已删除"); }
+  async function delProfile() { if (profiles.length <= 1) { toast("至少保留一个人设"); return; } var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; if (!confirm("删除人设「" + p.name + "」？和TA的聊天记录也会一起删掉。")) return; profiles = profiles.filter(function (x) { return x.id !== p.id; }); save("profiles", profiles); try { localStorage.removeItem(storeKey("msg." + p.id)); localStorage.removeItem(storeKey("mem." + p.id)); } catch (e) {} if (editingId === p.id) editingId = profiles[0].id; if (active.id === p.id) { active = profiles[0]; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); } renderProfiles(); fillEditForm(); toast("已删除"); }
 
   var FAVORITE_MODELS = [{ match: "openrouter.ai", list: [
     { id: "thedrummer/cydonia-24b-v4.1", label: "⭐ Cydonia 24B v4.1（RP首选）" },
@@ -648,10 +821,10 @@
   function cloudApiCopy() { return { baseUrl: DEFAULT_API.baseUrl, apiKey: "", model: cloudModel, myName: api.myName }; }
   function persistApi() {
     try {
-      localStorage.setItem("lover.api", JSON.stringify(api));
+      localStorage.setItem(storeKey("api"), JSON.stringify(api));
       localStorage.setItem("lover.apiLocal", JSON.stringify({ baseUrl: api.baseUrl, apiKey: api.apiKey, model: api.model }));
     } catch (e) {}
-    return fetch(API_BASE + "/sync", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ action: "set", key: "lover.api", data: cloudApiCopy() }) }).catch(function () {});
+    return cloudSet(storeKey("api"), cloudApiCopy());
   }
 
   function saveSettings() { api.baseUrl = $("fBase").value.trim() || DEFAULT_API.baseUrl; api.apiKey = ""; api.model = effectiveModelInput() || DEFAULT_API.model; api.myName = $("fMyName").value.trim(); persistApi(); closeSheets(); toast("已保存"); }
@@ -664,6 +837,56 @@
 
   async function loadConv() { messages = await load("msg." + active.id, []); memorySummary = await load("mem." + active.id, ""); }
   function pickActive(lastId) { var qs = null; try { qs = new URLSearchParams(location.search).get("p"); } catch (e) {} var sid = null; try { sid = sessionStorage.getItem("lover.active"); } catch (e) {} var id = qs || sid || lastId || ""; active = null; for (var i = 0; i < profiles.length; i++) if (profiles[i].id === id) active = profiles[i]; if (!active) active = profiles[0]; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); }
+
+  /* ---------- 跟 AI 说话（OOC） ---------- */
+  var chatMode = "role"; // role = 跟角色说；ai = 跟 AI 助手说，不进剧情
+
+  /* ---------- 消息管理：增删改查 ---------- */
+  var manageMode = false;
+  var selected = {};
+  var editMsgIdx = null; // null = 插入新消息
+  function selCount() { var n = 0; for (var k in selected) if (selected[k]) n++; return n; }
+  function selectedIdxs() { var a = []; for (var k in selected) if (selected[k]) a.push(parseInt(k, 10)); return a.sort(function (x, y) { return x - y; }); }
+  function enterManage() {
+    if (busy) { toast("等这条回复完再管理哦"); return; }
+    closeSheets(); stopSpeak();
+    manageMode = true; selected = {};
+    renderAll(); updateManageBar();
+    $("manageBar").classList.add("show");
+    document.querySelector("footer").style.display = "none";
+  }
+  function exitManage() {
+    manageMode = false; selected = {};
+    renderAll();
+    $("manageBar").classList.remove("show");
+    document.querySelector("footer").style.display = "";
+  }
+  function updateManageBar() {
+    var n = selCount();
+    $("mbDelete").disabled = n === 0;
+    $("mbDelete").textContent = n ? "删除(" + n + ")" : "删除";
+    $("mbEdit").disabled = n !== 1;
+    var total = messages.filter(function (m) { return m.role !== "stamp"; }).length;
+    $("mbSelectAll").textContent = (n > 0 && n === total) ? "取消全选" : "全选";
+  }
+  function cleanupStamps() {
+    var out = [];
+    for (var i = 0; i < messages.length; i++) {
+      var m = messages[i];
+      if (m.role === "stamp") { var next = messages[i + 1]; if (!next || next.role === "stamp") continue; }
+      out.push(m);
+    }
+    messages = out;
+  }
+  function openMsgSheet(insert) {
+    editMsgIdx = insert ? null : selectedIdxs()[0];
+    if (!insert && editMsgIdx == null) return;
+    $("editMsgTitle").textContent = insert ? "插入一条消息" : "编辑消息";
+    $("mContent").value = insert ? "" : messages[editMsgIdx].content;
+    $("mRoleWrap").style.display = insert ? "" : "none";
+    if (insert) $("mRole").value = "user";
+    closeSheets(); $("mask").classList.add("show"); $("sheetEditMsg").classList.add("show");
+  }
 
   /* ---------- 绑定事件 ---------- */
   $("btnSettings").addEventListener("click", function () { openSheet("sheetSettings"); });
@@ -679,6 +902,49 @@
   $("input").addEventListener("input", function () { autoGrow(); updateSend(); });
   $("input").addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
   $("profList").addEventListener("click", function (e) { var editBtn = e.target.closest("[data-edit]"); if (editBtn) { editingId = editBtn.getAttribute("data-edit"); fillEditForm(); return; } var row = e.target.closest(".prof-row"); if (row) switchProfile(row.getAttribute("data-id")); });
+  $("btnManage").addEventListener("click", function () { if (manageMode) exitManage(); else enterManage(); });
+  $("mbExit").addEventListener("click", exitManage);
+  $("mbSelectAll").addEventListener("click", function () {
+    var idxs = [], n = 0;
+    messages.forEach(function (m, i) { if (m.role !== "stamp") { idxs.push(i); if (selected[i]) n++; } });
+    var allOn = n > 0 && n === idxs.length;
+    selected = {};
+    if (!allOn) idxs.forEach(function (i) { selected[i] = true; });
+    renderAll(); updateManageBar();
+  });
+  $("mbDelete").addEventListener("click", function () {
+    var n = selCount(); if (!n) return;
+    if (!confirm("删除选中的 " + n + " 条消息？AI 接下来看到的上下文也会跟着变。")) return;
+    messages = messages.filter(function (m, i) { return !selected[i]; });
+    cleanupStamps(); selected = {};
+    saveMsgs(); renderAll(); updateManageBar(); toast("已删除");
+  });
+  $("mbEdit").addEventListener("click", function () { if (selCount() === 1) openMsgSheet(false); });
+  $("mbInsert").addEventListener("click", function () { openMsgSheet(true); });
+  $("btnSaveMsg").addEventListener("click", function () {
+    var v = $("mContent").value.trim();
+    if (!v) { toast("内容不能为空"); return; }
+    if (editMsgIdx === null) {
+      var role = $("mRole").value === "assistant" ? "assistant" : "user";
+      var idxs = selectedIdxs();
+      var pos = idxs.length ? idxs[idxs.length - 1] + 1 : messages.length;
+      var prev = messages[pos - 1];
+      messages.splice(pos, 0, { role: role, content: v, t: (prev && prev.t) || Date.now() });
+    } else {
+      messages[editMsgIdx].content = v;
+    }
+    saveMsgs(); renderAll(); updateManageBar(); closeSheets(); toast("已保存");
+  });
+  $("oocToggle").addEventListener("click", function () {
+    chatMode = chatMode === "role" ? "ai" : "role";
+    var on = chatMode === "ai";
+    $("oocToggle").classList.toggle("on", on);
+    $("input").placeholder = on ? "跟 AI 助手说（不影响剧情）…" : "说点什么…";
+  });
+  $("btnLogout").addEventListener("click", logout);
+  $("btnLogin").addEventListener("click", doLogin);
+  $("lPwd").addEventListener("keydown", function (e) { if (e.key === "Enter") doLogin(); });
+  $("lName").addEventListener("keydown", function (e) { if (e.key === "Enter") $("lPwd").focus(); });
 
   /* ---------- 启动应用 ---------- */
   async function initApp() {
@@ -715,8 +981,18 @@
     });
   }
 
-  if (document.readyState === "complete") { initApp(); } 
-  else { window.addEventListener("load", initApp); }
+  /* ---------- 启动：先过登录，再进应用 ---------- */
+  async function boot() {
+    var sess = getSession();
+    if (!sess || !sess.acct) { showLogin(); return; }
+    ACCT = sess.acct;
+    $("acctName").textContent = sess.name || "";
+    $("loginWrap").style.display = "none";
+    await initApp();
+  }
+
+  if (document.readyState === "complete") { boot(); } 
+  else { window.addEventListener("load", boot); }
 
 })();
 </script>
