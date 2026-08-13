@@ -252,10 +252,6 @@
       <label>模型 API 地址 (OpenAI 兼容格式) </label>
       <input id="fBase" value="https://lover-api-qleohpgkdt.cn-beijing.fcapp.run" placeholder="https://lover-api-qleohpgkdt.cn-beijing.fcapp.run">
     </div>
-    <div class="field">
-      <label>API Key</label>
-      <input id="fKey" type="password" placeholder="sk-...">
-    </div>
     <div class="row2">
       <div class="field">
         <label>模型</label>
@@ -273,7 +269,7 @@
     <button class="btn primary" id="btnSave">保存</button>
     <button class="btn ghost" id="btnTest">测试连接</button>
     <button class="btn danger" id="btnClear">清空与当前人设的聊天记录和记忆</button>
-    <div class="hint">默认走云端代理，无需填写 API Key，开箱即用。模型下拉打开时会自动拉取订阅包含的模型，也可选「自定义模型…」手动输入 ID。兼容任何 OpenAI 格式接口（含本地 Ollama/LM Studio）：地址和 Key 只保存在当前设备，聊天记录、模型、昵称多端同步。</div>
+    <div class="hint">默认走云端代理，无需任何 Key，开箱即用：模型下拉里直接选就行。也兼容本地 Ollama/LM Studio 等免 Key 地址。其它需 Key 的自定义地址本版不再支持。聊天记录、模型、昵称多端同步。</div>
   </div>
 
   <!-- 人设管理 -->
@@ -427,7 +423,8 @@
       // 请求阿里云 FC 的代理
       return fetch(API_BASE + "/chat", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model, stream: stream, messages: messagesPayload }), signal: signal });
     }
-    return fetch(cfg.baseUrl.replace(/\/+$/, "") + "/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + cfg.apiKey }, body: JSON.stringify({ model: cfg.model, stream: stream, messages: messagesPayload, temperature: 0.85, top_p: 0.9 }), signal: signal });
+    var hd = { "Content-Type": "application/json" }; if (cfg.apiKey) hd["Authorization"] = "Bearer " + cfg.apiKey;
+    return fetch(cfg.baseUrl.replace(/\/+$/, "") + "/chat/completions", { method: "POST", headers: hd, body: JSON.stringify({ model: cfg.model, stream: stream, messages: messagesPayload, temperature: 0.85, top_p: 0.9 }), signal: signal });
   }
   function llmFetch(messagesPayload, stream) { return llmFetchWith(api, messagesPayload, stream); }
 
@@ -476,13 +473,13 @@
   function send() {
     var v = $("input").value.trim();
     if (!v || busy) return;
-    if (needsKey()) { toast("先去设置里填一下 API Key 哦"); openSheet("sheetSettings"); return; }
+    if (needsKey()) { toast("当前地址不可用，去设置里换回云端地址哦"); openSheet("sheetSettings"); return; }
     $("input").value = ""; autoGrow(); busy = true; updateSend();
     addMsg("user", v); showTyping();
     detectProxy().then(function () { return streamReply(); }).catch(function (e) { hideTyping(); $("chat").insertAdjacentHTML("beforeend", '<div class="row lover"><div class="mini-avatar">' + esc(initial()) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>"); scrollBottom(true); }).then(function () { busy = false; updateSend(); });
   }
   function updateSend() { $("send").disabled = busy || !$("input").value.trim(); }
-  function needsKey() { return !proxyMode && !api.apiKey; } // 走代理时 key 由服务端提供，无需配置
+  function needsKey() { if (proxyMode) return false; if (api.apiKey) return false; return !/\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)([:/]|$)/.test(api.baseUrl || ""); } // 云端/本地地址免 key；其它自定义地址才需要
   function friendlyErr(e) { var m = (e && e.message) || "网络错误"; if (m === "Failed to fetch") return "浏览器连不上这个 API 地址（跨域限制）。去设置里换成官方地址：" + DEFAULT_API.baseUrl; return m; }
 
   /* ---------- 语音：朗读 / 语音输入 / 实时通话 ---------- */
@@ -532,7 +529,7 @@
     if (!SR) { toast("这个浏览器不支持语音输入，换 Chrome 或 Safari 试试"); return; }
     stopSpeak(); if (micOn) { micOn = false; try { micRec.stop(); } catch (e) {} }
     detectProxy().then(function () {
-      if (needsKey()) { toast("先去设置里填一下 API Key 哦"); openSheet("sheetSettings"); return; }
+      if (needsKey()) { toast("当前地址不可用，去设置里换回云端地址哦"); openSheet("sheetSettings"); return; }
       if (proxyMode) { callPrevModel = api.model; api.model = CALL_MODEL; } // 通话自动切到语音专用模型
       call.on = true; call.t0 = Date.now();
       $("callName").textContent = active.name || "TA"; $("callAvatar").textContent = initial(); $("callLine").textContent = "";
@@ -584,7 +581,7 @@
 
   function openSheet(id) {
     closeSheets();
-    if (id === "sheetSettings") { $("fBase").value = api.baseUrl; $("fKey").value = api.apiKey; $("fModel").value = api.model; $("fMyName").value = api.myName; $("fKey").placeholder = ($("fBase").value.trim().replace(/\/+$/, "") === DEFAULT_API.baseUrl.replace(/\/+$/, "")) ? "云端代理模式，无需填 Key" : "sk-..."; refreshModelOptions(); } else { renderProfiles(); editingId = active.id; fillEditForm(); }
+    if (id === "sheetSettings") { $("fBase").value = api.baseUrl; $("fModel").value = api.model; $("fMyName").value = api.myName; refreshModelOptions(); } else { renderProfiles(); editingId = active.id; fillEditForm(); }
     $("mask").classList.add("show"); $(id).classList.add("show");
   }
   function closeSheets() { $("mask").classList.remove("show"); $("sheetSettings").classList.remove("show"); $("sheetProfiles").classList.remove("show"); }
@@ -625,7 +622,7 @@
     var base = ($("fBase").value.trim() || DEFAULT_API.baseUrl).replace(/\/+$/, "");
     var favs = []; FAVORITE_MODELS.forEach(function (f) { if (base.indexOf(f.match) > -1) favs = f.list; });
     if (!favs.length && base === DEFAULT_API.baseUrl.replace(/\/+$/, "")) favs = FAVORITE_MODELS[0].list; // 代理模式：服务端带 key，收藏模型免配置直选
-    var h = {}; if (base === DEFAULT_API.baseUrl.replace(/\/+$/, "")) h["X-App-Token"] = APP_TOKEN; var k = $("fKey").value.trim(); if (k) h["Authorization"] = "Bearer " + k;
+    var h = {}; if (base === DEFAULT_API.baseUrl.replace(/\/+$/, "")) h["X-App-Token"] = APP_TOKEN;
     fetch(base + "/models", { headers: h }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
       var list = (d && d.data) ? d.data.map(function (m) { return m.id; }) : [];
       if (!list.length) return;
@@ -656,11 +653,11 @@
     return fetch(API_BASE + "/sync", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ action: "set", key: "lover.api", data: cloudApiCopy() }) }).catch(function () {});
   }
 
-  function saveSettings() { api.baseUrl = $("fBase").value.trim() || DEFAULT_API.baseUrl; api.apiKey = $("fKey").value.trim(); api.model = effectiveModelInput() || DEFAULT_API.model; api.myName = $("fMyName").value.trim(); persistApi(); closeSheets(); toast("已保存"); }
-  function testConn() { var base = $("fBase").value.trim() || DEFAULT_API.baseUrl; var key = $("fKey").value.trim(); var model = effectiveModelInput() || DEFAULT_API.model; if (!proxyMode && !key) { toast("先填 API Key"); return; } toast("测试中…"); llmFetchWith({ baseUrl: base, apiKey: key, model: model }, [{ role: "user", content: "连通性测试，请回复：在的" }], false).then(function (r) { return r.json(); }).then(function (j) { if (j.error) { toast("连接失败：" + (typeof j.error === "string" ? j.error : (j.error.message || JSON.stringify(j.error)))); return; } var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; toast(c ? "连接成功，TA 说：" + c.slice(0, 30) : "连接成功"); }).catch(function () { toast("连接失败：检查网络、API 地址或 Key"); }); }
+  function saveSettings() { api.baseUrl = $("fBase").value.trim() || DEFAULT_API.baseUrl; api.apiKey = ""; api.model = effectiveModelInput() || DEFAULT_API.model; api.myName = $("fMyName").value.trim(); persistApi(); closeSheets(); toast("已保存"); }
+  function testConn() { var base = $("fBase").value.trim() || DEFAULT_API.baseUrl; var model = effectiveModelInput() || DEFAULT_API.model; if (base.replace(/\/+$/, "") !== DEFAULT_API.baseUrl.replace(/\/+$/, "")) { toast("自定义地址需自备 Key，本版已移除 Key 输入，建议用云端地址"); return; } toast("测试中…"); llmFetchWith({ baseUrl: base, apiKey: "", model: model }, [{ role: "user", content: "连通性测试，请回复：在的" }], false).then(function (r) { return r.json(); }).then(function (j) { if (j.error) { toast("连接失败：" + (typeof j.error === "string" ? j.error : (j.error.message || JSON.stringify(j.error)))); return; } var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; toast(c ? "连接成功，TA 说：" + c.slice(0, 30) : "连接成功"); }).catch(function () { toast("连接失败：检查网络或 API 地址"); }); }
   function clearConv() { if (!confirm("清空与「" + active.name + "」的聊天记录和记忆？")) return; messages = []; memorySummary = ""; saveMsgs(); save("mem." + active.id, ""); renderAll(); greetIfEmpty(); closeSheets(); }
 
-  function greetIfEmpty() { if (messages.some(function (m) { return m.role === "assistant"; })) return; if (needsKey()) { addMsg("assistant", "（设置好 API Key 之后，我就能开始陪你聊天啦。点右上角的齿轮。）"); return; } busy = true; updateSend(); showTyping(); var payload = [{ role: "system", content: systemPrompt() }, { role: "user", content: "（这是我们的第一句对话，请你主动打个招呼，自然一点，别太长。）" }]; detectProxy().then(function () { return llmFetch(payload, false); }).then(function (r) { return r.json(); }).then(function (j) { hideTyping(); var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; addMsg("assistant", (c || "在呢，你来啦。").trim()); }).catch(function () { hideTyping(); addMsg("assistant", "在呢，你来啦。（开场白生成失败，不影响聊天）"); }).then(function () { busy = false; updateSend(); }); }
+  function greetIfEmpty() { if (messages.some(function (m) { return m.role === "assistant"; })) return; if (needsKey()) { addMsg("assistant", "（当前地址不可用，点右上角齿轮，换回云端地址就能聊啦。）"); return; } busy = true; updateSend(); showTyping(); var payload = [{ role: "system", content: systemPrompt() }, { role: "user", content: "（这是我们的第一句对话，请你主动打个招呼，自然一点，别太长。）" }]; detectProxy().then(function () { return llmFetch(payload, false); }).then(function (r) { return r.json(); }).then(function (j) { hideTyping(); var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; addMsg("assistant", (c || "在呢，你来啦。").trim()); }).catch(function () { hideTyping(); addMsg("assistant", "在呢，你来啦。（开场白生成失败，不影响聊天）"); }).then(function () { busy = false; updateSend(); }); }
 
   function autoGrow() { var el = $("input"); el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 110) + "px"; }
 
@@ -703,7 +700,7 @@
     api.model = (apiLocal && apiLocal.model) || cloudModel;
     api.myName = cloudName;
     await persistApi();
-    $("fBase").value = api.baseUrl; $("fKey").value = api.apiKey; $("fModel").value = api.model; $("fMyName").value = api.myName;
+    $("fBase").value = api.baseUrl; $("fModel").value = api.model; $("fMyName").value = api.myName;
 
     var lastId = await load("lastActive", "");
     pickActive(lastId);
