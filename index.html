@@ -225,7 +225,7 @@
     <button class="btn primary" id="btnSave">保存</button>
     <button class="btn ghost" id="btnTest">测试连接</button>
     <button class="btn danger" id="btnClear">清空与当前人设的聊天记录和记忆</button>
-    <div class="hint">默认走云端代理，无需填写 API Key，开箱即用。模型下拉打开时会自动拉取订阅包含的模型，也可选「自定义模型…」手动输入 ID。兼容任何 OpenAI 格式接口：改成自定义地址直连时，Key 只保存在你本机浏览器里。云端多端同步已自动开启，无缝同步记录与配置。</div>
+    <div class="hint">默认走云端代理，无需填写 API Key，开箱即用。模型下拉打开时会自动拉取订阅包含的模型，也可选「自定义模型…」手动输入 ID。兼容任何 OpenAI 格式接口（含本地 Ollama/LM Studio）：地址和 Key 只保存在当前设备，聊天记录、模型、昵称多端同步。</div>
   </div>
 
   <!-- 人设管理 -->
@@ -477,7 +477,16 @@
     };
   }
 
-  function saveSettings() { api.baseUrl = $("fBase").value.trim() || DEFAULT_API.baseUrl; api.apiKey = $("fKey").value.trim(); api.model = effectiveModelInput() || DEFAULT_API.model; api.myName = $("fMyName").value.trim(); save("api", api); closeSheets(); toast("已保存"); }
+  function cloudApiCopy() { return { baseUrl: DEFAULT_API.baseUrl, apiKey: "", model: api.model, myName: api.myName }; }
+  function persistApi() {
+    try {
+      localStorage.setItem("lover.api", JSON.stringify(api));
+      localStorage.setItem("lover.apiLocal", JSON.stringify({ baseUrl: api.baseUrl, apiKey: api.apiKey }));
+    } catch (e) {}
+    return fetch(API_BASE + "/sync", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ action: "set", key: "lover.api", data: cloudApiCopy() }) }).catch(function () {});
+  }
+
+  function saveSettings() { api.baseUrl = $("fBase").value.trim() || DEFAULT_API.baseUrl; api.apiKey = $("fKey").value.trim(); api.model = effectiveModelInput() || DEFAULT_API.model; api.myName = $("fMyName").value.trim(); persistApi(); closeSheets(); toast("已保存"); }
   function testConn() { var base = $("fBase").value.trim() || DEFAULT_API.baseUrl; var key = $("fKey").value.trim(); var model = effectiveModelInput() || DEFAULT_API.model; if (!proxyMode && !key) { toast("先填 API Key"); return; } toast("测试中…"); llmFetchWith({ baseUrl: base, apiKey: key, model: model }, [{ role: "user", content: "连通性测试，请回复：在的" }], false).then(function (r) { return r.json(); }).then(function (j) { if (j.error) { toast("连接失败：" + (typeof j.error === "string" ? j.error : (j.error.message || JSON.stringify(j.error)))); return; } var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; toast(c ? "连接成功，TA 说：" + c.slice(0, 30) : "连接成功"); }).catch(function () { toast("连接失败：检查网络、API 地址或 Key"); }); }
   function clearConv() { if (!confirm("清空与「" + active.name + "」的聊天记录和记忆？")) return; messages = []; memorySummary = ""; saveMsgs(); save("mem." + active.id, ""); renderAll(); greetIfEmpty(); closeSheets(); }
 
@@ -516,7 +525,9 @@
       var oe = await load("memorySummary", ""); if (oe) await save("mem.p1", oe);
     }
     if (!api) api = Object.assign({}, DEFAULT_API);
-    await save("api", api);
+    var apiLocal = null; try { apiLocal = JSON.parse(localStorage.getItem("lover.apiLocal") || "null"); } catch (e) {}
+    if (apiLocal) { if (apiLocal.baseUrl) api.baseUrl = apiLocal.baseUrl; api.apiKey = apiLocal.apiKey || ""; }
+    await persistApi();
 
     var lastId = await load("lastActive", "");
     pickActive(lastId);
