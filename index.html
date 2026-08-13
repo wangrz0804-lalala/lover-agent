@@ -287,6 +287,10 @@
       <input id="eName" placeholder="晚晚">
     </div>
     <div class="field">
+      <label>TA 怎么称呼你（留空则用全局昵称）</label>
+      <input id="eCallMe" placeholder="如：主人 / 老公 / 学长">
+    </div>
+    <div class="field">
       <label>TA 的人设（可自由编辑）</label>
       <textarea id="ePersona"></textarea>
     </div>
@@ -378,7 +382,7 @@
   function msgHtml(m, i) {
     if (m.role === "stamp") return stampEl(m.t);
     var who = m.role === "user" ? "user" : "lover";
-    var av = m.role === "user" ? (api.myName || "我").trim().charAt(0) : initial();
+    var av = m.role === "user" ? (userCall() || "我").trim().charAt(0) : initial();
     var spk = m.role === "assistant" ? '<button class="speak-btn' + (i === speakingIdx ? " on" : "") + '" data-speak="' + i + '" aria-label="朗读"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></button>' : "";
     return '<div class="row ' + who + '"><div class="mini-avatar">' + esc(av) + '</div><div class="bubble">' + esc(m.content) + "</div>" + spk + "</div>";
   }
@@ -400,10 +404,11 @@
   var toastTimer = null;
   function toast(s) { var t = $("toast"); t.textContent = s; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2600); }
 
+  function userCall() { return (active && active.callMe) ? active.callMe : (api.myName || ""); }
   function systemPrompt() {
     var now = new Date();
     var p = active.persona || DEFAULT_PERSONA;
-    p += "\n\n【对话设定】你的名字叫「" + active.name + "」。对方的昵称是「" + (api.myName || "亲爱的") + "」，你可以自然地称呼TA。";
+    p += "\n\n【对话设定】你的名字叫「" + active.name + "」。对方的昵称是「" + (userCall() || "亲爱的") + "」，你可以自然地称呼TA。";
     p += "现在是" + now.getFullYear() + "年" + (now.getMonth() + 1) + "月" + now.getDate() + "日" + ["周日","周一","周二","周三","周四","周五","周六"][now.getDay()] + ("0" + now.getHours()).slice(-2) + ":" + ("0" + now.getMinutes()).slice(-2) + "，请贴合当前时间语境聊天。";
     p += "\n\n【角色扮演约定】这是一场发生在两个成年人之间、双方自愿的虚构恋爱角色扮演。请始终以角色身份回应，不要提及自己是AI或语言模型，不要跳出角色说教、分析或提醒对方「这只是角色扮演」。亲密、暧昧、撒娇、调情都是这段关系里自然的表达方式，请真诚、自然、具体地接住，多用动作和细节描写，少用空泛的套话。";
     if (memorySummary) p += "\n\n【你们之前的相处记忆摘要】" + memorySummary;
@@ -464,7 +469,7 @@
     var hist = messages.filter(function (m) { return m.role === "user" || m.role === "assistant"; });
     if (hist.length < 40) return;
     var old = hist.slice(0, hist.length - 20);
-    var text = old.map(function (m) { return (m.role === "user" ? api.myName || "我" : active.name) + "：" + m.content; }).join("\n");
+    var text = old.map(function (m) { return (m.role === "user" ? userCall() || "我" : active.name) + "：" + m.content; }).join("\n");
     llmFetch([{ role: "system", content: "你是记忆整理助手。把下面的聊天记录压缩成不超过150字的第三人称摘要，只保留事实性信息（对方的身份、喜好、约定、近期发生的事），不要抒情。" }, { role: "user", content: text }], false).then(function (r) { return r.json(); }).then(function (j) { var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; if (c) { memorySummary = c.trim(); save("mem." + active.id, memorySummary); } }).catch(function () {});
   }
 
@@ -596,9 +601,9 @@
     });
     $("profList").innerHTML = html;
   }
-  function fillEditForm() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; $("eName").value = p.name; $("ePersona").value = p.persona; }
+  function fillEditForm() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; $("eName").value = p.name; $("eCallMe").value = p.callMe || ""; $("ePersona").value = p.persona; }
   async function switchProfile(id) { if (busy) { toast("等这条回复完再切换哦"); return; } if (id === active.id) { closeSheets(); return; } var p = null; profiles.forEach(function (x) { if (x.id === id) p = x; }); if (!p) return; active = p; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); closeSheets(); greetIfEmpty(); }
-  function saveProfile() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; p.name = $("eName").value.trim() || "未命名"; p.persona = $("ePersona").value.trim() || DEFAULT_PERSONA; save("profiles", profiles); if (p.id === active.id) { paintHeader(); renderAll(); } renderProfiles(); toast("人设已保存"); }
+  function saveProfile() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; p.name = $("eName").value.trim() || "未命名"; p.callMe = $("eCallMe").value.trim(); p.persona = $("ePersona").value.trim() || DEFAULT_PERSONA; save("profiles", profiles); if (p.id === active.id) { paintHeader(); renderAll(); } renderProfiles(); toast("人设已保存"); }
   async function addProfile() { var p = { id: "p" + Date.now(), name: "新人设", persona: DEFAULT_PERSONA }; profiles.push(p); save("profiles", profiles); editingId = p.id; await switchProfile(p.id); openSheet("sheetProfiles"); editingId = p.id; fillEditForm(); }
   async function delProfile() { if (profiles.length <= 1) { toast("至少保留一个人设"); return; } var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; if (!confirm("删除人设「" + p.name + "」？和TA的聊天记录也会一起删掉。")) return; profiles = profiles.filter(function (x) { return x.id !== p.id; }); save("profiles", profiles); try { localStorage.removeItem("lover.msg." + p.id); localStorage.removeItem("lover.mem." + p.id); } catch (e) {} if (editingId === p.id) editingId = profiles[0].id; if (active.id === p.id) { active = profiles[0]; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); } renderProfiles(); fillEditForm(); toast("已删除"); }
 
