@@ -477,11 +477,12 @@
     };
   }
 
-  function cloudApiCopy() { return { baseUrl: DEFAULT_API.baseUrl, apiKey: "", model: api.model, myName: api.myName }; }
+  var cloudModel = DEFAULT_API.model;
+  function cloudApiCopy() { return { baseUrl: DEFAULT_API.baseUrl, apiKey: "", model: cloudModel, myName: api.myName }; }
   function persistApi() {
     try {
       localStorage.setItem("lover.api", JSON.stringify(api));
-      localStorage.setItem("lover.apiLocal", JSON.stringify({ baseUrl: api.baseUrl, apiKey: api.apiKey }));
+      localStorage.setItem("lover.apiLocal", JSON.stringify({ baseUrl: api.baseUrl, apiKey: api.apiKey, model: api.model }));
     } catch (e) {}
     return fetch(API_BASE + "/sync", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ action: "set", key: "lover.api", data: cloudApiCopy() }) }).catch(function () {});
   }
@@ -525,9 +526,15 @@
       var oe = await load("memorySummary", ""); if (oe) await save("mem.p1", oe);
     }
     if (!api) api = Object.assign({}, DEFAULT_API);
+    cloudModel = api.model || DEFAULT_API.model;
+    var cloudName = api.myName || "";
     var apiLocal = null; try { apiLocal = JSON.parse(localStorage.getItem("lover.apiLocal") || "null"); } catch (e) {}
-    if (apiLocal) { if (apiLocal.baseUrl) api.baseUrl = apiLocal.baseUrl; api.apiKey = apiLocal.apiKey || ""; }
+    api.baseUrl = (apiLocal && apiLocal.baseUrl) || api.baseUrl || DEFAULT_API.baseUrl;
+    api.apiKey = (apiLocal && apiLocal.apiKey) || "";
+    api.model = (apiLocal && apiLocal.model) || cloudModel;
+    api.myName = cloudName;
     await persistApi();
+    $("fBase").value = api.baseUrl; $("fKey").value = api.apiKey; $("fModel").value = api.model; $("fMyName").value = api.myName;
 
     var lastId = await load("lastActive", "");
     pickActive(lastId);
