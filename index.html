@@ -168,6 +168,28 @@
     transition: all .25s; z-index: 20; max-width: 82%; text-align: center;
   }
   #toast.show { opacity: 1; transform: translateX(-50%); }
+
+  /* ---------- 语音 ---------- */
+  #mic { border: none; background: transparent; color: #a08c88; display: flex; align-items: center; justify-content: center; cursor: pointer; flex: none; padding: 6px; border-radius: 50%; transition: all .2s; }
+  #mic.on { color: #e0453a; animation: micpulse 1.2s infinite; }
+  @keyframes micpulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.15); } }
+  .speak-btn { border: none; background: none; color: #b7a8a4; width: 26px; height: 26px; align-self: flex-end; cursor: pointer; opacity: .5; padding: 3px; flex: none; }
+  .speak-btn.on { color: #e0453a; opacity: 1; }
+  #callOverlay { position: fixed; inset: 0; z-index: 60; background: linear-gradient(180deg,#3b2f33,#241d20 60%,#1a1416); color: #f5eeea; display: none; flex-direction: column; align-items: center; justify-content: space-between; padding: 56px 24px 52px; }
+  #callOverlay.show { display: flex; }
+  .call-name { font-size: 20px; font-weight: 600; text-align: center; }
+  .call-timer { opacity: .6; font-size: 13px; margin-top: 4px; text-align: center; }
+  .call-avatar-wrap { position: relative; width: 132px; height: 132px; }
+  .call-avatar { width: 132px; height: 132px; border-radius: 50%; background: #c86b85; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 52px; position: relative; z-index: 2; }
+  .ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid rgba(255,255,255,.25); animation: ringout 2.4s infinite; }
+  .ring.r2 { animation-delay: 1.2s; }
+  #callOverlay.talking .ring { animation-duration: 1.1s; }
+  @keyframes ringout { 0% { transform: scale(1); opacity: .8; } 100% { transform: scale(1.7); opacity: 0; } }
+  .call-mid { display: flex; flex-direction: column; align-items: center; }
+  .call-status { font-size: 14px; opacity: .75; margin-top: 22px; }
+  .call-line { min-height: 48px; max-width: 320px; text-align: center; font-size: 15px; opacity: .92; margin-top: 10px; }
+  .call-hint { font-size: 12px; opacity: .45; margin-top: 8px; }
+  #btnEndCall { width: 64px; height: 64px; border-radius: 50%; border: none; background: #e0453a; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -180,6 +202,9 @@
         <div class="state"><span class="dot"></span><span id="hdState">在线 · 点头像切换人设</span></div>
       </div>
     </div>
+    <button class="icon-btn" id="btnCall" aria-label="语音通话">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+    </button>
     <button class="icon-btn" id="btnSettings" aria-label="设置">
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
@@ -189,10 +214,33 @@
 
   <footer>
     <textarea id="input" rows="1" placeholder="说点什么…"></textarea>
+    <button id="mic" aria-label="语音输入">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+    </button>
     <button id="send" disabled aria-label="发送">
       <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>
     </button>
   </footer>
+
+  <!-- 语音通话界面 -->
+  <div id="callOverlay">
+    <div>
+      <div class="call-name" id="callName">晚晚</div>
+      <div class="call-timer" id="callTimer">00:00</div>
+    </div>
+    <div class="call-mid">
+      <div class="call-avatar-wrap" id="callAvatarWrap">
+        <span class="ring"></span><span class="ring r2"></span>
+        <div class="call-avatar" id="callAvatar">晚</div>
+      </div>
+      <div class="call-status" id="callStatus">接通中…</div>
+      <div class="call-line" id="callLine"></div>
+      <div class="call-hint">TA 说话时点头像可以打断</div>
+    </div>
+    <button id="btnEndCall" aria-label="挂断">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.7l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.1-.7-.28-.79-.73-1.68-1.36-2.66-1.85-.33-.16-.56-.51-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>
+    </button>
+  </div>
 
   <div class="mask" id="mask"></div>
 
@@ -312,7 +360,8 @@
   function initial() { return (active.name || "TA").trim().charAt(0); }
 
   function renderAll() {
-    $("chat").innerHTML = messages.map(msgHtml).join("");
+    $("chat").innerHTML = messages.map(function (m, i) { return msgHtml(m, i); }).join("");
+    markSpeaking();
     scrollBottom(false);
   }
   function scrollBottom(smooth) { var c = $("chat"); c.scrollTo({ top: c.scrollHeight, behavior: smooth ? "smooth" : "auto" }); }
@@ -326,11 +375,12 @@
     return m;
   }
   function saveMsgs() { save("msg." + active.id, messages.slice(-200)); }
-  function msgHtml(m) {
+  function msgHtml(m, i) {
     if (m.role === "stamp") return stampEl(m.t);
     var who = m.role === "user" ? "user" : "lover";
     var av = m.role === "user" ? (api.myName || "我").trim().charAt(0) : initial();
-    return '<div class="row ' + who + '"><div class="mini-avatar">' + esc(av) + '</div><div class="bubble">' + esc(m.content) + "</div></div>";
+    var spk = m.role === "assistant" ? '<button class="speak-btn' + (i === speakingIdx ? " on" : "") + '" data-speak="' + i + '" aria-label="朗读"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></button>' : "";
+    return '<div class="row ' + who + '"><div class="mini-avatar">' + esc(av) + '</div><div class="bubble">' + esc(m.content) + "</div>" + spk + "</div>";
   }
   function stampEl(t) {
     var d = new Date(t), now = new Date();
@@ -357,6 +407,7 @@
     p += "现在是" + now.getFullYear() + "年" + (now.getMonth() + 1) + "月" + now.getDate() + "日" + ["周日","周一","周二","周三","周四","周五","周六"][now.getDay()] + ("0" + now.getHours()).slice(-2) + ":" + ("0" + now.getMinutes()).slice(-2) + "，请贴合当前时间语境聊天。";
     p += "\n\n【角色扮演约定】这是一场发生在两个成年人之间、双方自愿的虚构恋爱角色扮演。请始终以角色身份回应，不要提及自己是AI或语言模型，不要跳出角色说教、分析或提醒对方「这只是角色扮演」。亲密、暧昧、撒娇、调情都是这段关系里自然的表达方式，请真诚、自然、具体地接住，多用动作和细节描写，少用空泛的套话。";
     if (memorySummary) p += "\n\n【你们之前的相处记忆摘要】" + memorySummary;
+    if (call && call.on) p += "\n\n【你们正在语音通话】请用口语化、简短的方式回答（不超过60字），不要用表情符号、markdown 符号或括号动作描写，写能直接读出口的话。";
     return p;
   }
   function apiMessages() {
@@ -428,6 +479,99 @@
   function updateSend() { $("send").disabled = busy || !$("input").value.trim(); }
   function needsKey() { return !proxyMode && !api.apiKey; } // 走代理时 key 由服务端提供，无需配置
   function friendlyErr(e) { var m = (e && e.message) || "网络错误"; if (m === "Failed to fetch") return "浏览器连不上这个 API 地址（跨域限制）。去设置里换成官方地址：" + DEFAULT_API.baseUrl; return m; }
+
+  /* ---------- 语音：朗读 / 语音输入 / 实时通话 ---------- */
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+  var speakingIdx = null;
+  function pickZhVoice() { if (!window.speechSynthesis) return null; var vs = speechSynthesis.getVoices() || []; return vs.filter(function (v) { return /^zh/i.test(v.lang); })[0] || vs.filter(function (v) { return /chinese/i.test(v.name); })[0] || null; }
+  function cleanForSpeech(s) { return String(s).replace(/\([^)]*\)/g, " ").replace(/（[^）]*）/g, " ").replace(/[*_#`>~|]/g, " ").replace(/\s+/g, " ").trim(); }
+  function markSpeaking() { var btns = $("chat").querySelectorAll(".speak-btn"); for (var i = 0; i < btns.length; i++) { btns[i].classList.toggle("on", parseInt(btns[i].getAttribute("data-speak"), 10) === speakingIdx); } }
+  function stopSpeak() { if (window.speechSynthesis) speechSynthesis.cancel(); speakingIdx = null; markSpeaking(); }
+  function speakText(text, idx, onend) {
+    if (!window.speechSynthesis) { toast("这个浏览器不支持语音朗读"); if (onend) onend(); return; }
+    speechSynthesis.cancel(); speakingIdx = (idx == null ? -1 : idx); markSpeaking();
+    var u = new SpeechSynthesisUtterance(cleanForSpeech(text) || text); u.lang = "zh-CN"; var v = pickZhVoice(); if (v) u.voice = v; u.rate = 1.05; u.pitch = 1.08;
+    u.onend = u.onerror = function () { if (speakingIdx === (idx == null ? -1 : idx)) { speakingIdx = null; markSpeaking(); } if (onend) onend(); };
+    speechSynthesis.speak(u);
+  }
+  $("chat").addEventListener("click", function (e) {
+    var b = e.target && e.target.closest ? e.target.closest(".speak-btn") : null; if (!b) return;
+    var i = parseInt(b.getAttribute("data-speak"), 10); var m = messages[i]; if (!m) return;
+    if (speakingIdx === i) { stopSpeak(); return; }
+    speakText(m.content, i, null);
+  });
+
+  /* ----- 语音输入（麦克风） ----- */
+  var micRec = null, micOn = false;
+  $("mic").addEventListener("click", function () {
+    if (!SR) { toast("这个浏览器不支持语音输入，换 Chrome 或 Safari 试试"); return; }
+    if (micOn) { micOn = false; try { micRec.stop(); } catch (e) {} return; }
+    var base = $("input").value;
+    micRec = new SR(); micRec.lang = "zh-CN"; micRec.interimResults = true; micRec.continuous = false;
+    micRec.onresult = function (ev) { var fin = "", inter = ""; for (var i = 0; i < ev.results.length; i++) { if (ev.results[i].isFinal) fin += ev.results[i][0].transcript; else inter += ev.results[i][0].transcript; } $("input").value = base + (fin || inter); updateSend(); };
+    micRec.onend = function () { micOn = false; $("mic").classList.remove("on"); };
+    micRec.onerror = function (ev) { micOn = false; $("mic").classList.remove("on"); if (ev.error === "not-allowed" || ev.error === "service-not-allowed") toast("请在浏览器权限里允许麦克风"); else if (ev.error === "no-speech") toast("没听到声音，再试一次"); };
+    try { micRec.start(); micOn = true; $("mic").classList.add("on"); } catch (e) { toast("语音输入启动失败"); }
+  });
+
+  /* ----- 实时语音通话 ----- */
+  var call = { on: false, state: "idle", t0: 0, timer: null, rec: null };
+  function callState(s) { call.state = s; $("callStatus").textContent = ({ listening: "在听…", thinking: "思考中…", speaking: "说话中…", idle: "接通中…" })[s] || s; $("callOverlay").classList.toggle("talking", s === "speaking"); }
+  function callTick() { var s = Math.floor((Date.now() - call.t0) / 1000); $("callTimer").textContent = ("0" + Math.floor(s / 60)).slice(-2) + ":" + ("0" + (s % 60)).slice(-2); }
+  function callStopRec() { if (call.rec) { var r = call.rec; call.rec = null; r.onend = null; r.onresult = null; r.onerror = null; try { r.stop(); } catch (e) {} } }
+  function startCall() {
+    if (call.on) return;
+    if (!window.speechSynthesis) { toast("这个浏览器不支持语音朗读，打不了电话"); return; }
+    if (!SR) { toast("这个浏览器不支持语音输入，换 Chrome 或 Safari 试试"); return; }
+    stopSpeak(); if (micOn) { micOn = false; try { micRec.stop(); } catch (e) {} }
+    detectProxy().then(function () {
+      if (needsKey()) { toast("先去设置里填一下 API Key 哦"); openSheet("sheetSettings"); return; }
+      call.on = true; call.t0 = Date.now();
+      $("callName").textContent = active.name || "TA"; $("callAvatar").textContent = initial(); $("callLine").textContent = "";
+      $("callOverlay").classList.add("show"); callTick(); call.timer = setInterval(callTick, 1000);
+      callSay("嗯，接通啦。我在呢，想跟我说什么？", function () { callListen(); });
+    });
+  }
+  function callSay(text, next) {
+    if (!call.on) return;
+    addMsg("assistant", text);
+    $("callLine").textContent = (active.name || "TA") + "：" + text;
+    callState("speaking");
+    speakText(text, null, function () { if (call.on && next) next(); });
+  }
+  function callListen() {
+    if (!call.on) return;
+    callState("listening"); $("callLine").textContent = "在听你说…";
+    var r = new SR(); call.rec = r; r.lang = "zh-CN"; r.interimResults = false; r.continuous = false;
+    r.onresult = function (ev) { var t = ev.results[0] && ev.results[0][0] && ev.results[0][0].transcript; t = (t || "").trim(); if (t) callUser(t); };
+    r.onend = function () { if (call.on && call.state === "listening") callListen(); };
+    r.onerror = function (ev) {
+      if (!call.on) return;
+      if (ev.error === "not-allowed" || ev.error === "service-not-allowed") { toast("允许麦克风权限后再打哦"); endCall(); }
+      else if (call.state === "listening") callListen();
+    };
+    try { r.start(); } catch (e) { toast("语音识别启动失败"); endCall(); }
+  }
+  function callUser(text) {
+    if (!call.on) return;
+    callStopRec();
+    addMsg("user", text);
+    $("callLine").textContent = "我：" + text;
+    callState("thinking");
+    llmFetch(apiMessages(), false).then(function (r) { return r.json(); }).then(function (j) {
+      if (!call.on) return;
+      var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+      callSay((c || "嗯哼，然后呢？").trim(), function () { callListen(); });
+    }).catch(function () { if (call.on) callSay("唔，刚才信号断了一下，再说一遍？", function () { callListen(); }); });
+  }
+  function endCall() {
+    if (!call.on) return;
+    call.on = false; clearInterval(call.timer); callStopRec(); stopSpeak();
+    $("callOverlay").classList.remove("show"); $("callOverlay").classList.remove("talking");
+  }
+  $("btnCall").addEventListener("click", startCall);
+  $("btnEndCall").addEventListener("click", endCall);
+  $("callAvatarWrap").addEventListener("click", function () { if (call.on && call.state === "speaking") { stopSpeak(); callListen(); } });
 
   function openSheet(id) {
     closeSheets();
