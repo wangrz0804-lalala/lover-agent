@@ -406,7 +406,7 @@
     var p = active.persona || DEFAULT_PERSONA;
     p += "\n\n【对话设定】你的名字叫「" + active.name + "」。对方的昵称是「" + (userCall() || "亲爱的") + "」，你可以自然地称呼TA。";
     p += "现在是" + now.getFullYear() + "年" + (now.getMonth() + 1) + "月" + now.getDate() + "日" + ["周日","周一","周二","周三","周四","周五","周六"][now.getDay()] + ("0" + now.getHours()).slice(-2) + ":" + ("0" + now.getMinutes()).slice(-2) + "，请贴合当前时间语境聊天。";
-    p += "\n\n【角色扮演约定】这是一场发生在两个成年人之间、双方自愿的虚构恋爱角色扮演。请始终以角色身份回应，不要提及自己是AI或语言模型，不要跳出角色说教、分析或提醒对方「这只是角色扮演」。亲密、暧昧、撒娇、调情都是这段关系里自然的表达方式，请真诚、自然、具体地接住，多用动作和细节描写，少用空泛的套话。回复保持精炼，控制在两三百字以内，有来有回，把话头留给对方。";
+    p += "\n\n【角色扮演约定】这是一场发生在两个成年人之间、双方自愿的虚构恋爱角色扮演。请始终以角色身份回应，不要提及自己是AI或语言模型，不要跳出角色说教、分析或提醒对方「这只是角色扮演」。亲密、暧昧、撒娇、调情都是这段关系里自然的表达方式，请真诚、自然、具体地接住。回复要像真实聊天的情景对话：以口语对白为主，场景和动作描写只保留最能传情的一两处关键细节，删掉无效铺垫；不要重复自己刚说过的话或动作，不要车轱辘式来回；一次回复控制在100-200字，有来有回，把话头留给对方。";
     if (memorySummary) p += "\n\n【你们之前的相处记忆摘要】" + memorySummary;
     if (call && call.on) p += "\n\n【你们正在语音通话】请用口语化、简短的方式回答（不超过60字），不要用表情符号、markdown 符号或括号动作描写，写能直接读出口的话。";
     return p;
@@ -467,7 +467,8 @@
     if (hist.length < 16) return;
     var old = hist.slice(0, hist.length - 10);
     var text = old.map(function (m) { return (m.role === "user" ? userCall() || "我" : active.name) + "：" + m.content; }).join("\n");
-    llmFetch([{ role: "system", content: "你是记忆整理助手。把下面的聊天记录压缩成不超过150字的第三人称摘要，只保留事实性信息（对方的身份、喜好、约定、近期发生的事），不要抒情。" }, { role: "user", content: text }], false).then(function (r) { return r.json(); }).then(function (j) { var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; if (c) { memorySummary = c.trim(); save("mem." + active.id, memorySummary); } }).catch(function () {});
+    var prev = memorySummary ? "【原有记忆摘要】" + memorySummary + "\n【新增对话】\n" : "";
+    llmFetch([{ role: "system", content: "你是记忆整理助手。把原有记忆摘要与新增对话合并，压缩成不超过250字的第三人称摘要，只保留事实性信息（对方的身份、喜好、约定、近期发生的事），新旧信息都要保留，不要抒情，不要重复。" }, { role: "user", content: prev + text }], false).then(function (r) { return r.json(); }).then(function (j) { var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; if (c) { memorySummary = c.trim(); save("mem." + active.id, memorySummary); } }).catch(function () {});
   }
 
   function send() {
