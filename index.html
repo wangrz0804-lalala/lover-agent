@@ -454,6 +454,14 @@
   async function addProfile() { var p = { id: "p" + Date.now(), name: "新人设", persona: DEFAULT_PERSONA }; profiles.push(p); save("profiles", profiles); editingId = p.id; await switchProfile(p.id); openSheet("sheetProfiles"); editingId = p.id; fillEditForm(); }
   async function delProfile() { if (profiles.length <= 1) { toast("至少保留一个人设"); return; } var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; if (!confirm("删除人设「" + p.name + "」？和TA的聊天记录也会一起删掉。")) return; profiles = profiles.filter(function (x) { return x.id !== p.id; }); save("profiles", profiles); try { localStorage.removeItem("lover.msg." + p.id); localStorage.removeItem("lover.mem." + p.id); } catch (e) {} if (editingId === p.id) editingId = profiles[0].id; if (active.id === p.id) { active = profiles[0]; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); } renderProfiles(); fillEditForm(); toast("已删除"); }
 
+  var FAVORITE_MODELS = [{ match: "openrouter.ai", list: [
+    { id: "thedrummer/cydonia-24b-v4.1", label: "⭐ Cydonia 24B v4.1（RP首选）" },
+    { id: "cognitivecomputations/dolphin-mistral-24b-venice-edition", label: "Dolphin Mistral 24B（无审查）" },
+    { id: "thedrummer/skyfall-36b-v2", label: "Skyfall 36B v2（RP）" },
+    { id: "sao10k/l3.3-euryale-70b", label: "Euryale 70B（RP老牌）" },
+    { id: "anthracite-org/magnum-v4-72b", label: "Magnum v4 72B（RP，较贵）" },
+    { id: "gryphe/mythomax-l2-13b", label: "MythoMax 13B（最便宜）" }
+  ] }];
   function effectiveModelInput() { var v = $("fModelSel").value; return (v && v !== "__custom__") ? v : $("fModel").value.trim(); }
   function refreshModelOptions() {
     var sel = $("fModelSel"); var cur = $("fModel").value.trim() || DEFAULT_API.model;
@@ -462,14 +470,21 @@
     var c = document.createElement("option"); c.value = "__custom__"; c.textContent = "自定义模型…"; sel.appendChild(c);
     sel.value = cur; $("fModelCustomWrap").style.display = "none";
     var base = ($("fBase").value.trim() || DEFAULT_API.baseUrl).replace(/\/+$/, "");
+    var favs = []; FAVORITE_MODELS.forEach(function (f) { if (base.indexOf(f.match) > -1) favs = f.list; });
     var h = { "X-App-Token": APP_TOKEN }; var k = $("fKey").value.trim(); if (k) h["Authorization"] = "Bearer " + k;
     fetch(base + "/models", { headers: h }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
       var list = (d && d.data) ? d.data.map(function (m) { return m.id; }) : [];
       if (!list.length) return;
       sel.innerHTML = "";
-      list.forEach(function (id) { var op = document.createElement("option"); op.value = id; op.textContent = id; sel.appendChild(op); });
+      var favIds = [];
+      if (favs.length) {
+        var og = document.createElement("optgroup"); og.label = "收藏推荐";
+        favs.forEach(function (f) { favIds.push(f.id); var op = document.createElement("option"); op.value = f.id; op.textContent = f.label; og.appendChild(op); });
+        sel.appendChild(og);
+      }
+      list.forEach(function (id) { if (favIds.indexOf(id) > -1) return; var op = document.createElement("option"); op.value = id; op.textContent = id; sel.appendChild(op); });
       var cc = document.createElement("option"); cc.value = "__custom__"; cc.textContent = "自定义模型…"; sel.appendChild(cc);
-      if (list.indexOf(cur) > -1) { sel.value = cur; } else { sel.value = "__custom__"; $("fModel").value = cur; $("fModelCustomWrap").style.display = ""; }
+      if (favIds.indexOf(cur) > -1 || list.indexOf(cur) > -1) { sel.value = cur; } else { sel.value = "__custom__"; $("fModel").value = cur; $("fModelCustomWrap").style.display = ""; }
     }).catch(function () {});
     sel.onchange = function () {
       if (sel.value === "__custom__") { $("fModelCustomWrap").style.display = ""; $("fModel").focus(); }
