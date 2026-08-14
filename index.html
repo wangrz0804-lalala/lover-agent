@@ -88,6 +88,7 @@
   .msg-pic { margin: 6px 0 2px; }
   .msg-pic img { max-width: 230px; width: 100%; border-radius: 12px; display: block; }
   .msg-pic.loading { opacity: .55; font-size: 12px; padding: 8px 0; }
+  .tr-line { text-align: center; opacity: .55; font-size: 12px; margin: 8px 0 2px; }
   .row.user .bubble { background: var(--user-bubble); color: #f5f1ea; border-top-right-radius: 4px; }
   .bubble.error { background: #f7e8e4; color: #a4462f; font-size: 13px; }
   .typing { display: inline-flex; gap: 4px; padding: 4px 2px; }
@@ -583,11 +584,12 @@
     return API_BASE + "/avatar?key=" + encodeURIComponent(key) + "&token=" + encodeURIComponent(APP_TOKEN);
   }
   function bubbleHtml(shown) {
-    var re = /\[\[(pic:[A-Za-z0-9._-]+|图:[^\]]{0,200})\]\]/g;
+    var re = /\[\[(pic:[A-Za-z0-9._-]+|图:[^\]]{0,200}|过渡:[^\]]{0,40})\]\]/g;
     var out = "", last = 0, m;
     while ((m = re.exec(shown))) {
       out += esc(shown.slice(last, m.index));
       if (m[1].indexOf("pic:") === 0) out += '<div class="msg-pic"><img src="' + picUrl(m[1].slice(4)) + '" alt="" loading="lazy"></div>';
+      else if (m[1].indexOf("过渡:") === 0) out += '<div class="tr-line">⏳ ' + esc(m[1].slice(3)) + '</div>';
       else out += '<div class="msg-pic loading">照片冲印中…</div>';
       last = m.index + m[0].length;
     }
@@ -653,7 +655,7 @@
     var p = active.persona || "";
     p += "\n\n【对话设定】你的名字叫「" + active.name + "」。对方的昵称是「" + (userCall() || "亲爱的") + "」，你可以自然地称呼TA。";
     p += "现在是" + now.getFullYear() + "年" + (now.getMonth() + 1) + "月" + now.getDate() + "日" + ["周日","周一","周二","周三","周四","周五","周六"][now.getDay()] + ("0" + now.getHours()).slice(-2) + ":" + ("0" + now.getMinutes()).slice(-2) + "，请贴合当前时间语境聊天。";
-    p += "\n\n【角色扮演约定】这是一场发生在两个成年人之间、双方自愿的虚构恋爱角色扮演。请始终以角色身份回应，不要提及自己是AI或语言模型，不要跳出角色说教、分析或提醒对方「这只是角色扮演」。亲密、暧昧、撒娇、调情都是这段关系里自然的表达方式，请真诚、自然、具体地接住。\n【人设稳定】从头到尾严格保持设定里的性格、语气和说话习惯，聊得再久也不能漂移；关系可以越来越亲密随意，但「这个人是谁」始终不变。\n【说话方式】像真人发微信，长短跟着话题走：随口闲聊一两句就够；走心、安慰、亲密、讲事情的话题要放开写、写充分，几百字都正常，别一句话草草收尾；口语直给，会用语气词（嘛、呀、呢、啦），偶尔带表情，不铺垫、不总结、不列点、不用书面腔，动作描写最多带一个短语。每条回复的长短和句式都要有变化，别千篇一律。\n【严禁重复】自己说过的台词、动作、问法、情节，一律不许再用，换个说法也不行；别总用同一种开头或结尾句式，别复读对方刚说的话，别反复问同一类问题。每条回复必须带来新东西——新信息、新动作或新问题。这一轮只写新的内容，绝不重发、复制或拼接你之前发过的回复。\n【输出干净】像真人聊天一样只输出说话内容；禁止 **、## 等 markdown 符号，禁止模板占位符、系统说明、「角色扮演结束」之类的标记。\n【亲密戏写法】当剧情自然发展到亲密、情欲的场景时，写得直接、有张力：白描为主，不用比喻修辞；着重写角色的动作和身体状态，生理反应细致入微，私密器官也不回避，直接写清它们的状态、变化和感受；其次是语言、神态和心理动态，环境一笔带过；不分阶段、不分类、不用小标题，写完整连贯的剧情。非亲密场景不要刻意露骨，心理描写和情绪交流可以多些，尺度随剧情自然切换。\n【可以发图】当剧情合适时（对方想看你的样子、要照片，或你想给TA看你当下的穿着、面前的场景），你可以在回复里发一张图：在回复中加入 [[图:40字内的具体画面描述]]，每条回复最多一张；剧情不需要时不要发。\n【情绪与记忆】先接住对方的情绪，再回应事情本身；记忆摘要里的重要信息（TA 的喜好、在意的事、提过的约定和烦恼）要自然地用在聊天里，合适的时机主动关心，但别刻意复述。\n【关系推进】你们的关系会随着相处慢慢变化：越来越亲近、越来越有默契；每轮对话尽量推动一点关系或带来新话题，别原地打转。";
+    p += "\n\n【角色扮演约定】这是一场发生在两个成年人之间、双方自愿的虚构恋爱角色扮演。请始终以角色身份回应，不要提及自己是AI或语言模型，不要跳出角色说教、分析或提醒对方「这只是角色扮演」。亲密、暧昧、撒娇、调情都是这段关系里自然的表达方式，请真诚、自然、具体地接住。\n【人设稳定】从头到尾严格保持设定里的性格、语气和说话习惯，聊得再久也不能漂移；关系可以越来越亲密随意，但「这个人是谁」始终不变。\n【说话方式】像真人发微信，长短跟着话题走：随口闲聊一两句就够；走心、安慰、亲密、讲事情的话题要放开写、写充分，几百字都正常，别一句话草草收尾；口语直给，会用语气词（嘛、呀、呢、啦），偶尔带表情，不铺垫、不总结、不列点、不用书面腔，动作描写最多带一个短语。每条回复的长短和句式都要有变化，别千篇一律。\n【严禁重复】自己说过的台词、动作、问法、情节，一律不许再用，换个说法也不行；别总用同一种开头或结尾句式，别复读对方刚说的话，别反复问同一类问题。每条回复必须带来新东西——新信息、新动作或新问题。这一轮只写新的内容，绝不重发、复制或拼接你之前发过的回复。\n【输出干净】像真人聊天一样只输出说话内容；禁止 **、## 等 markdown 符号，禁止模板占位符、系统说明、「角色扮演结束」之类的标记。\n【亲密戏写法】当剧情自然发展到亲密、情欲的场景时，写得直接、有张力：白描为主，不用比喻修辞；着重写角色的动作和身体状态，生理反应细致入微，私密器官也不回避，直接写清它们的状态、变化和感受；其次是语言、神态和心理动态，环境一笔带过；不分阶段、不分类、不用小标题，写完整连贯的剧情。非亲密场景不要刻意露骨，心理描写和情绪交流可以多些，尺度随剧情自然切换。\n【可以发图】当剧情合适时（对方想看你的样子、要照片，或你想给TA看你当下的穿着、面前的场景），你可以在回复里发一张图：在回复中加入 [[图:40字内的具体画面描述]]，每条回复最多一张；剧情不需要时不要发。\n【过渡与主动】当剧情需要过渡期（睡一觉、等天黑、分开一阵、忙完一段等），在本条回复结尾加上 [[过渡:10字内的时间流逝描述]]，过渡结束后你会主动找对方说话、把剧情接下去；普通对话不要加。\n【情绪与记忆】先接住对方的情绪，再回应事情本身；记忆摘要里的重要信息（TA 的喜好、在意的事、提过的约定和烦恼）要自然地用在聊天里，合适的时机主动关心，但别刻意复述。\n【关系推进】你们的关系会随着相处慢慢变化：越来越亲近、越来越有默契；每轮对话尽量推动一点关系或带来新话题，别原地打转。";
     if (memorySummary) p += "\n\n【你们之前的相处记忆摘要】" + memorySummary;
     if (call && call.on) p += "\n\n【你们正在语音通话】请用口语化、简短的方式回答（不超过60字），不要用表情符号、markdown 符号或括号动作描写，写能直接读出口的话。每句话的开头和说法都要有变化，不要总用「嗯」「然后呢」这类词接话。";
     return p;
@@ -757,9 +759,10 @@
     var ooc = chatMode === "ai";
     if (!ooc && !(active.persona || "").trim()) { toast("先给 TA 起个名字、写上人设哦"); openSheet("sheetProfiles"); return; }
     $("input").value = ""; autoGrow(); busy = true; updateSend();
+    if (trTimer) { clearTimeout(trTimer); trTimer = null; }
     $("sugg").innerHTML = "";
     addMsg("user", v, ooc); showTyping(ooc);
-    detectProxy().then(function () { return streamReply(ooc); }).catch(function (e) { if (e && (e.partial || /地区有访问限制|没有这个模型/.test(e.message || ""))) throw e; toast("网络抖了一下，正在重试…"); return streamReply(ooc); }).catch(function (e) { hideTyping(); $("chat").insertAdjacentHTML("beforeend", '<div class="row lover' + (ooc ? " ooc" : "") + '"><div class="mini-avatar">' + (ooc ? esc("AI") : avatarHtml(active, initial())) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>"); scrollBottom(true); }).then(function () { busy = false; updateSend(); genSuggestions(); processPicInLastMsg(); });
+    detectProxy().then(function () { return streamReply(ooc); }).catch(function (e) { if (e && (e.partial || /地区有访问限制|没有这个模型/.test(e.message || ""))) throw e; toast("网络抖了一下，正在重试…"); return streamReply(ooc); }).catch(function (e) { hideTyping(); $("chat").insertAdjacentHTML("beforeend", '<div class="row lover' + (ooc ? " ooc" : "") + '"><div class="mini-avatar">' + (ooc ? esc("AI") : avatarHtml(active, initial())) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>"); scrollBottom(true); }).then(function () { busy = false; updateSend(); genSuggestions(); processPicInLastMsg(); processTransitionInLastMsg(); });
   }
   function updateSend() { $("send").disabled = busy || !$("input").value.trim(); }
   function needsKey() { if (proxyMode) return false; if (api.apiKey) return false; return !/\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)([:/]|$)/.test(api.baseUrl || ""); } // 云端/本地地址免 key；其它自定义地址才需要
@@ -770,7 +773,7 @@
   var speakingIdx = null;
   var ttsAudio = null;
   function pickZhVoice() { if (!window.speechSynthesis) return null; var vs = speechSynthesis.getVoices() || []; return vs.filter(function (v) { return /^zh/i.test(v.lang); })[0] || vs.filter(function (v) { return /chinese/i.test(v.name); })[0] || null; }
-  function cleanForSpeech(s) { return String(s).replace(/\[\[(pic:[^\]]*|图:[^\]]*)\]\]/g, " ").replace(/\([^)]*\)/g, " ").replace(/（[^）]*）/g, " ").replace(/[*_#`>~|]/g, " ").replace(/\s+/g, " ").trim(); }
+  function cleanForSpeech(s) { return String(s).replace(/\[\[(pic:[^\]]*|图:[^\]]*|过渡:[^\]]*)\]\]/g, " ").replace(/\([^)]*\)/g, " ").replace(/（[^）]*）/g, " ").replace(/[*_#`>~|]/g, " ").replace(/\s+/g, " ").trim(); }
   function markSpeaking() { var btns = $("chat").querySelectorAll(".speak-btn"); for (var i = 0; i < btns.length; i++) { btns[i].classList.toggle("on", parseInt(btns[i].getAttribute("data-speak"), 10) === speakingIdx); } }
   function profileGender(p) {
     if (p && p.gender) return p.gender;
@@ -1288,6 +1291,32 @@
       })
       .then(function (key) { m.content = m.content.replace("[[图:" + desc + "]]", "[[pic:" + key + "]]"); saveMsgs(); renderAll(); })
       .catch(function () { m.content = m.content.replace("[[图:" + desc + "]]", ""); saveMsgs(); renderAll(); });
+  }
+
+  /* ----- 过渡期：结束后角色主动说话 ----- */
+  var trTimer = null;
+  function processTransitionInLastMsg() {
+    if (trTimer) { clearTimeout(trTimer); trTimer = null; }
+    var m = null;
+    for (var i = messages.length - 1; i >= 0; i--) { if (messages[i].role === "assistant" && !messages[i].ooc) { m = messages[i]; break; } }
+    if (!m) return;
+    var mm = /\[\[过渡:([^\]]{1,40})\]\]/.exec(m.content);
+    if (!mm) return;
+    var desc = mm[1];
+    var snapLen = messages.length;
+    trTimer = setTimeout(function () {
+      trTimer = null;
+      if (call.on || chatMode !== "role" || busy || messages.length !== snapLen) return; // 用户已接话/在通话/忙：不打断
+      showTyping();
+      var payload = apiMessages();
+      payload.push({ role: "user", content: "（过渡期（" + desc + "）结束了，现在你主动找对方说话，顺着之前的剧情自然开口，几十字内，不要提过渡这件事。）" });
+      llmFetch(payload, false).then(function (r) { return r.json(); }).then(function (j) {
+        hideTyping();
+        var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+        c = cleanReply(c);
+        if (c) { addMsg("assistant", c); genSuggestions(); }
+      }).catch(function () { hideTyping(); });
+    }, 60000);
   }
 
   /* ----- 性别选择后的推荐人设 / 昵称（不预设默认性别） ----- */
