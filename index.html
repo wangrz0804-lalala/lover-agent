@@ -772,14 +772,17 @@
   function pickZhVoice() { if (!window.speechSynthesis) return null; var vs = speechSynthesis.getVoices() || []; return vs.filter(function (v) { return /^zh/i.test(v.lang); })[0] || vs.filter(function (v) { return /chinese/i.test(v.name); })[0] || null; }
   function cleanForSpeech(s) { return String(s).replace(/\[\[(pic:[^\]]*|图:[^\]]*)\]\]/g, " ").replace(/\([^)]*\)/g, " ").replace(/（[^）]*）/g, " ").replace(/[*_#`>~|]/g, " ").replace(/\s+/g, " ").trim(); }
   function markSpeaking() { var btns = $("chat").querySelectorAll(".speak-btn"); for (var i = 0; i < btns.length; i++) { btns[i].classList.toggle("on", parseInt(btns[i].getAttribute("data-speak"), 10) === speakingIdx); } }
+  function profileGender(p) {
+    if (p && p.gender) return p.gender;
+    var t = (p && p.persona) || "";
+    if (/女|她|姐|妹|女友|女朋友|妻/.test(t)) return "f";
+    if (/男|他|哥|弟|男友|男朋友|夫/.test(t)) return "m";
+    return "";
+  }
   function ttsGender() {
     if (active && active.voice === "m") return "m";
     if (active && active.voice === "f") return "f";
-    if (active && active.gender) return active.gender;
-    var p = (active && active.persona) || "";
-    if (/女|她|姐|妹|女友|女朋友|妻/.test(p)) return "f";
-    if (/男|他|哥|弟|男友|男朋友|夫/.test(p)) return "m";
-    return "f";
+    return profileGender(active) || "f";
   }
   function stopSpeak() { if (window.speechSynthesis) speechSynthesis.cancel(); if (ttsAudio) { try { ttsAudio.pause(); } catch (e) {} ttsAudio = null; } speakingIdx = null; markSpeaking(); }
   function speakViaTTS(text, gender, onend) {
@@ -1185,8 +1188,9 @@
     var desc = $("ePersona").value.trim() || $("eName").value.trim();
     if (!desc) { toast("先写人设，再生成头像"); return; }
     p.avStyle = $("eAvStyle").value;
+    var g = profileGender(p);
     var styleTxt = { anime: "日系动漫风格", d3: "皮克斯迪士尼3D渲染风格", real: "写实摄影风格" }[$("eAvStyle").value] || "日系动漫风格";
-    var prompt = "角色头像，肖像构图，头肩特写，干净纯色背景，高质量。人物设定：" + desc.slice(0, 300) + "。" + (p.gender ? "角色性别：" + (p.gender === "f" ? "女" : "男") + "。" : "") + "风格：" + styleTxt + "。";
+    var prompt = "恋人app的角色头像，肖像构图，头肩特写，高质量。气质要温柔撩人、有恋爱感：带一点笑意或撩人的眼神、看向镜头，柔和暖光，氛围浪漫松弛，不要严肃、不要刻板证件照感。人物设定：" + desc.slice(0, 300) + "。" + (g ? "角色性别：" + (g === "f" ? "女" : "男") + "。" : "") + "风格：" + styleTxt + "。";
     toast("头像生成中，约15秒…");
     $("btnGenAv").disabled = true;
     fetch(API_BASE + "/genimg", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ prompt: prompt }) })
@@ -1260,8 +1264,9 @@
     var recent = "";
     for (var k = messages.length - 1; k >= 0 && k >= messages.length - 3; k--) recent += (messages[k].content || "") + " ";
     var intimate = /裸|赤裸|胸|床|脱|私处|下体|穴|阴茎|乳|臀|喘|吻|亲密|云雨|缠绵|想要你|睡/.test(desc + recent);
+    var g = profileGender(active);
     var styleTxt = { anime: "日系动漫风格", d3: "皮克斯迪士尼3D渲染风格", real: "写实摄影风格" }[active.avStyle] || "日系动漫风格";
-    var prompt = "角色发来的照片，自然真实的生活感。人物设定：" + (active.persona || "").slice(0, 200) + "。" + (active.gender ? "角色性别：" + (active.gender === "f" ? "女" : "男") + "。" : "") + "画面内容：" + desc + "。风格：" + styleTxt + "。";
+    var prompt = "角色发来的照片，自然真实的生活感，表情松弛带一点撩人。人物设定：" + (active.persona || "").slice(0, 200) + "。" + (g ? "角色性别：" + (g === "f" ? "女" : "男") + "。" : "") + "画面内容：" + desc + "。风格：" + styleTxt + "。";
     fetch(API_BASE + "/genimg", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ prompt: prompt, route: intimate ? "nsfw" : "safe" }) })
       .then(function (r) { if (!r.ok) throw 0; return r.blob(); })
       .then(function (b) {
