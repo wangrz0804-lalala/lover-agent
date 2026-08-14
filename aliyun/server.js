@@ -133,32 +133,38 @@ const server = http.createServer(async (req, res) => {
       presence_penalty: 0.6,  // 鼓励往前推进，别原地打转
       max_tokens: 2000, // 放开长度：走心回复不被截断，仍留安全阀
     };
-    /* 上游调用：网络错误 / 429 / 5xx 自动重试最多 3 次（OpenRouter 等外部线路偶发抖动，用户无感） */
+    /* 上游调用：429/5xx/网络错误自动重试；OpenRouter 另带兜底链——所选模型不稳时按序自动切换备用模型 */
+    const OR_CHAIN = ["thedrummer/cydonia-24b-v4.1", "cognitivecomputations/dolphin-mistral-24b-venice-edition", "sao10k/l3.3-euryale-70b"];
+    const modelList = useOR ? [model].concat(OR_CHAIN.filter((m) => m !== model)) : [model];
     const upUrl = (useOR ? OPENROUTER_UP : UPSTREAM) + "/chat/completions";
     const upHeaders = { "Content-Type": "application/json", "Authorization": "Bearer " + (useOR ? OPENROUTER_KEY : MODEL_KEY) };
-    const upBody = JSON.stringify(payload);
     let upstream = null;
     let lastErr = "";
-    for (let attempt = 1; attempt <= 3 && !upstream; attempt++) {
-      const ac = new AbortController();
-      const timer = setTimeout(() => ac.abort(), 45000); // 单次建连上限，卡住就换一次重试
-      try {
-        const r = await fetch(upUrl, { method: "POST", headers: upHeaders, body: upBody, signal: ac.signal });
-        clearTimeout(timer);
-        if (r.status === 429 || r.status >= 500) {
-          const t = await r.text().catch(() => "");
-          lastErr = "上游返回 " + r.status + (t ? "：" + t.slice(0, 200) : "");
-          if (attempt < 3) await new Promise((rr) => setTimeout(rr, 700 * attempt));
-          continue;
+    for (let mi = 0; mi < modelList.length && !upstream; mi++) {
+      payload.model = modelList[mi];
+      const upBody = JSON.stringify(payload);
+      const tries = useOR ? 2 : 3;
+      for (let attempt = 1; attempt <= tries && !upstream; attempt++) {
+        const ac = new AbortController();
+        const timer = setTimeout(() => ac.abort(), 45000); // 单次建连上限，卡住就换一次重试
+        try {
+          const r = await fetch(upUrl, { method: "POST", headers: upHeaders, body: upBody, signal: ac.signal });
+          clearTimeout(timer);
+          if (r.status === 429 || r.status >= 500) {
+            const t = await r.text().catch(() => "");
+            lastErr = "上游返回 " + r.status + (t ? "：" + t.slice(0, 200) : "");
+            if (attempt < tries) await new Promise((rr) => setTimeout(rr, 600 * attempt));
+            continue;
+          }
+          upstream = r;
+        } catch (e) {
+          clearTimeout(timer);
+          lastErr = "上游连接异常：" + String((e && e.message) || e);
+          if (attempt < tries) await new Promise((rr) => setTimeout(rr, 600 * attempt));
         }
-        upstream = r;
-      } catch (e) {
-        clearTimeout(timer);
-        lastErr = "上游连接异常：" + String((e && e.message) || e);
-        if (attempt < 3) await new Promise((rr) => setTimeout(rr, 700 * attempt));
       }
     }
-    if (!upstream) return json(res, 502, { error: "模型服务暂时不稳定，已自动重试过，稍后再发一次试试", detail: lastErr });
+    if (!upstream) return json(res, 502, { error: "模型服务暂时不稳定，已自动重试并切换过备用模型，稍后再发一次试试", detail: lastErr });
     if (payload.stream && (upstream.headers.get("content-type") || "").includes("event-stream") && upstream.ok) {
       res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache", "Connection": "keep-alive" });
       const reader = upstream.body.getReader();

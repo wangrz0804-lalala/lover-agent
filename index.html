@@ -871,10 +871,10 @@
   async function delProfile() { if (profiles.length <= 1) { toast("至少保留一个人设"); return; } var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; if (!confirm("删除人设「" + p.name + "」？和TA的聊天记录也会一起删掉。")) return; profiles = profiles.filter(function (x) { return x.id !== p.id; }); save("profiles", profiles); try { localStorage.removeItem(storeKey("msg." + p.id)); localStorage.removeItem(storeKey("mem." + p.id)); } catch (e) {} if (editingId === p.id) editingId = profiles[0].id; if (active.id === p.id) { active = profiles[0]; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); } renderProfiles(); fillEditForm(); toast("已删除"); }
 
   var FAVORITE_MODELS = [{ match: "openrouter.ai", list: [
-    { id: "thedrummer/cydonia-24b-v4.1", label: "⭐ Cydonia 24B v4.1（RP首选）" },
-    { id: "cognitivecomputations/dolphin-mistral-24b-venice-edition", label: "Dolphin Mistral 24B（无审查）" },
+    { id: "thedrummer/cydonia-24b-v4.1", label: "⭐ Cydonia 24B v4.1（写作首选/RP）" },
+    { id: "cognitivecomputations/dolphin-mistral-24b-venice-edition", label: "Dolphin Mistral 24B（通用首选/无审查）" },
+    { id: "sao10k/l3.3-euryale-70b", label: "Euryale 70B（保底）" },
     { id: "thedrummer/skyfall-36b-v2", label: "Skyfall 36B v2（RP）" },
-    { id: "sao10k/l3.3-euryale-70b", label: "Euryale 70B（RP老牌）" },
     { id: "anthracite-org/magnum-v4-72b", label: "Magnum v4 72B（RP，较贵）" },
     { id: "gryphe/mythomax-l2-13b", label: "MythoMax 13B（最便宜）" }
   ] }];
