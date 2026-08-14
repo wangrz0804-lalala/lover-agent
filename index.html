@@ -1463,6 +1463,17 @@
     await initApp();
   }
 
+  /* 版本自动刷新：部署新版本后，旧页面打开时自动重载一次 */
+  var BUILD_ID = "20260814a";
+  (function () {
+    try {
+      if (localStorage.getItem("lover.build") !== BUILD_ID) {
+        localStorage.setItem("lover.build", BUILD_ID);
+        if (localStorage.getItem("lover.build") === BUILD_ID && localStorage.getItem("lover.session")) location.reload();
+      }
+    } catch (e) {}
+  })();
+
   if (document.readyState === "complete") { boot(); } 
   else { window.addEventListener("load", boot); }
 

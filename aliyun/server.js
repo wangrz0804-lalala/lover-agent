@@ -81,7 +81,7 @@ function serveStatic(res, entry) {
   catch (e) { return json(res, 404, { error: "not found" }); }
   cors(res);
   res.setHeader("Content-Disposition", "inline");
-  res.writeHead(200, { "Content-Type": entry.type, "Cache-Control": "no-cache" });
+  res.writeHead(200, { "Content-Type": entry.type, "Cache-Control": entry.file === "index.html" ? "no-store" : "no-cache" });
   return res.end(buf);
 }
 
@@ -200,7 +200,12 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && url === "/genimg") {
     const prompt = String(body.prompt || "").trim().slice(0, 800);
     if (!prompt) return json(res, 400, { error: "prompt 不能为空" });
-    const buf = await genImage(body.route === "nsfw" ? "nsfw" : "safe", prompt, String(body.bare || "").slice(0, 300));
+    let finalPrompt = prompt;
+    if (!/角色性别/.test(finalPrompt)) {
+      const g = /女孩|女生|少女|女人|女性|她|姐|妹|女友|女朋友|妻|公主|女王|裙|罩杯/.test(finalPrompt) ? "女" : (/男孩|男生|男人|男性|他|哥|弟|男友|男朋友|夫|大叔|帅哥|总裁/.test(finalPrompt) ? "男" : "");
+      if (g) finalPrompt += "角色性别：" + g + "。";
+    }
+    const buf = await genImage(body.route === "nsfw" ? "nsfw" : "safe", finalPrompt, String(body.bare || "").slice(0, 300));
     if (!buf) return json(res, 502, { error: "生图失败：两条线路都不可用或被拦截" });
     cors(res);
     res.writeHead(200, { "Content-Type": "image/jpeg", "Content-Length": buf.length });
