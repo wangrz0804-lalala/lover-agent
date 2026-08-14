@@ -220,8 +220,8 @@ const server = http.createServer(async (req, res) => {
       stream: !!body.stream,
       temperature: 0.85,
       top_p: 0.9,
-      frequency_penalty: 0.7, // 抑制车轱辘话：已出现过的词再出现要扣分
-      presence_penalty: 0.6,  // 鼓励往前推进，别原地打转
+      frequency_penalty: 0.3, // 轻度抑制车轱辘话；太高会压制长文
+      presence_penalty: 0.25, // 轻度推进；防重复主要靠提示词+前端检测
       max_tokens: 2000, // 放开长度：走心回复不被截断，仍留安全阀
       enable_thinking: false, // 关掉推理模型的长思考：RP 要快、要直接，思考链只会拖慢并触发超时
     };
