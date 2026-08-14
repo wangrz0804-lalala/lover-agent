@@ -329,6 +329,7 @@
     <div class="field" id="fModelCustomWrap" style="display:none">
       <label>自定义模型 ID</label>
       <input id="fModel" placeholder="输入模型 ID，如 qwen3.8-max">
+      <div style="font-size:11px;opacity:.55;margin-top:4px;line-height:1.5">OpenAI / Google / Anthropic 的模型有地区限制，用不了；建议选收藏列表，或 deepseek、qwen、moonshotai 开头的模型</div>
     </div>
     <button class="btn primary" id="btnSave">保存</button>
     <button class="btn ghost" id="btnTest">测试连接</button>
@@ -685,7 +686,7 @@
     if (!ooc && !(active.persona || "").trim()) { toast("先给 TA 起个名字、写上人设哦"); openSheet("sheetProfiles"); return; }
     $("input").value = ""; autoGrow(); busy = true; updateSend();
     addMsg("user", v, ooc); showTyping(ooc);
-    detectProxy().then(function () { return streamReply(ooc); }).catch(function (e) { if (e && e.partial) throw e; toast("网络抖了一下，正在重试…"); return streamReply(ooc); }).catch(function (e) { hideTyping(); $("chat").insertAdjacentHTML("beforeend", '<div class="row lover' + (ooc ? " ooc" : "") + '"><div class="mini-avatar">' + esc(ooc ? "AI" : initial()) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>"); scrollBottom(true); }).then(function () { busy = false; updateSend(); });
+    detectProxy().then(function () { return streamReply(ooc); }).catch(function (e) { if (e && (e.partial || /地区有访问限制|没有这个模型/.test(e.message || ""))) throw e; toast("网络抖了一下，正在重试…"); return streamReply(ooc); }).catch(function (e) { hideTyping(); $("chat").insertAdjacentHTML("beforeend", '<div class="row lover' + (ooc ? " ooc" : "") + '"><div class="mini-avatar">' + esc(ooc ? "AI" : initial()) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>"); scrollBottom(true); }).then(function () { busy = false; updateSend(); });
   }
   function updateSend() { $("send").disabled = busy || !$("input").value.trim(); }
   function needsKey() { if (proxyMode) return false; if (api.apiKey) return false; return !/\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)([:/]|$)/.test(api.baseUrl || ""); } // 云端/本地地址免 key；其它自定义地址才需要

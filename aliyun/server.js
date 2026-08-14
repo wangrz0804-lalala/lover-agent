@@ -173,6 +173,18 @@ const server = http.createServer(async (req, res) => {
       return res.end();
     }
     const text = await upstream.text();
+    if (!upstream.ok) {
+      let friendly = null;
+      try {
+        const j = JSON.parse(text);
+        const m = String((j.error && (typeof j.error === "string" ? j.error : j.error.message)) || "");
+        if (/not available in your region/i.test(m)) friendly = "这个模型对服务器所在地区有访问限制，用不了。请选收藏列表里的模型，或 deepseek/、qwen/、moonshotai/ 开头的模型";
+        else if (/no endpoints found/i.test(m)) friendly = "没有这个模型，检查下模型名（格式一般是 厂商/模型名）";
+        else if (upstream.status === 401) friendly = "上游 API 拒绝了请求（Key 无效或额度用完）：" + m.slice(0, 100);
+        else if (upstream.status === 429) friendly = "上游限流了，稍等一会儿再发";
+      } catch (e) { /* 非 JSON 错误原样透传 */ }
+      if (friendly) return json(res, upstream.status === 429 ? 429 : 400, { error: friendly });
+    }
     cors(res);
     res.writeHead(upstream.status, { "Content-Type": "application/json; charset=utf-8" });
     return res.end(text);
