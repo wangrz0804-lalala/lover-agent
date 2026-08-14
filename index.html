@@ -102,6 +102,9 @@
   #sugg::-webkit-scrollbar { display: none; }
   #sugg .chip { flex: none; max-width: 72%; padding: 7px 12px; border-radius: 15px; border: 1px solid var(--line); background: #fff; font-size: 13px; color: var(--ink-2); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: inherit; }
   #sugg .chip:active { opacity: .65; }
+  #eRec .rec-chip { display: inline-block; margin: 0 6px 6px 0; padding: 6px 10px; border-radius: 13px; border: 1px solid var(--line); background: #fff; font-size: 12px; color: var(--ink-2); cursor: pointer; }
+  #eRec .rec-chip:active { opacity: .65; }
+  #eRec .rec-t { font-size: 11px; opacity: .55; margin: 2px 0 5px; }
   #input {
     flex: 1; border: 1px solid var(--line); background: #fff; border-radius: 22px;
     padding: 10px 15px; font-size: 15px; outline: none; resize: none;
@@ -358,13 +361,18 @@
       <input id="eName" placeholder="晚晚">
     </div>
     <div class="field">
+      <label>TA 的性别</label>
+      <select id="eGender"><option value="">未选择</option><option value="f">女</option><option value="m">男</option></select>
+    </div>
+    <div class="field">
       <label>TA 怎么称呼你（留空则用全局昵称）</label>
-      <input id="eCallMe" placeholder="如：主人 / 老公 / 学长">
+      <input id="eCallMe" placeholder="如：亲爱的 / 宝宝 / 学长">
     </div>
     <div class="field">
       <label>TA 的人设（可自由编辑）</label>
       <textarea id="ePersona" placeholder="TA 是谁、什么性格、和你什么关系、说话什么风格…写得越具体，TA 越像真的"></textarea>
     </div>
+    <div id="eRec" style="display:none"></div>
     <div class="field">
       <label>通话语色</label>
       <select id="eVoice">
@@ -738,6 +746,7 @@
   function ttsGender() {
     if (active && active.voice === "m") return "m";
     if (active && active.voice === "f") return "f";
+    if (active && active.gender) return active.gender;
     var p = (active && active.persona) || "";
     if (/女|她|姐|妹|女友|女朋友|妻/.test(p)) return "f";
     if (/男|他|哥|弟|男友|男朋友|夫/.test(p)) return "m";
@@ -993,9 +1002,9 @@
     });
     $("profList").innerHTML = html;
   }
-  function fillEditForm() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; $("eName").value = p.name; $("eCallMe").value = p.callMe || ""; $("ePersona").value = p.persona; $("eVoice").value = p.voice || ""; paintAvPrev(); }
+  function fillEditForm() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; $("eName").value = p.name; $("eGender").value = p.gender || ""; $("eCallMe").value = p.callMe || ""; $("ePersona").value = p.persona; $("eVoice").value = p.voice || ""; paintRec(); paintAvPrev(); }
   async function switchProfile(id) { if (busy) { toast("等这条回复完再切换哦"); return; } if (id === active.id) { closeSheets(); return; } var p = null; profiles.forEach(function (x) { if (x.id === id) p = x; }); if (!p) return; active = p; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); closeSheets(); greetIfEmpty(); $("sugg").innerHTML = ""; genSuggestions(); }
-  function saveProfile() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; p.name = $("eName").value.trim() || "未命名"; p.callMe = $("eCallMe").value.trim(); p.persona = $("ePersona").value.trim(); p.voice = $("eVoice").value || ""; save("profiles", profiles); if (p.id === active.id) { paintHeader(); renderAll(); if ((p.persona || "").trim()) greetIfEmpty(); } renderProfiles(); toast("人设已保存"); }
+  function saveProfile() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; p.name = $("eName").value.trim() || "未命名"; p.gender = $("eGender").value || ""; p.callMe = $("eCallMe").value.trim(); p.persona = $("ePersona").value.trim(); p.voice = $("eVoice").value || ""; save("profiles", profiles); if (p.id === active.id) { paintHeader(); renderAll(); if ((p.persona || "").trim()) greetIfEmpty(); } renderProfiles(); toast("人设已保存"); }
   async function addProfile() { var p = { id: "p" + Date.now(), name: "", persona: "" }; profiles.push(p); save("profiles", profiles); editingId = p.id; await switchProfile(p.id); openSheet("sheetProfiles"); editingId = p.id; fillEditForm(); }
   async function delProfile() { if (profiles.length <= 1) { toast("至少保留一个人设"); return; } var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; if (!confirm("删除人设「" + p.name + "」？和TA的聊天记录也会一起删掉。")) return; profiles = profiles.filter(function (x) { return x.id !== p.id; }); save("profiles", profiles); try { localStorage.removeItem(storeKey("msg." + p.id)); localStorage.removeItem(storeKey("mem." + p.id)); } catch (e) {} try { fetch(API_BASE + "/avatar", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ key: storeKey("avatar." + p.id), action: "del" }) }); } catch (e) {} if (editingId === p.id) editingId = profiles[0].id; if (active.id === p.id) { active = profiles[0]; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); } renderProfiles(); fillEditForm(); toast("已删除"); }
 
@@ -1136,7 +1145,7 @@
     var desc = $("ePersona").value.trim() || $("eName").value.trim();
     if (!desc) { toast("先写人设，再生成头像"); return; }
     var styleTxt = { anime: "日系动漫风格", d3: "皮克斯迪士尼3D渲染风格", real: "写实摄影风格" }[$("eAvStyle").value] || "日系动漫风格";
-    var prompt = "角色头像，肖像构图，头肩特写，干净纯色背景，高质量。人物设定：" + desc.slice(0, 300) + "。风格：" + styleTxt + "。";
+    var prompt = "角色头像，肖像构图，头肩特写，干净纯色背景，高质量。人物设定：" + desc.slice(0, 300) + "。" + (p.gender ? "角色性别：" + (p.gender === "f" ? "女" : "男") + "。" : "") + "风格：" + styleTxt + "。";
     toast("头像生成中，约15秒…");
     $("btnGenAv").disabled = true;
     fetch(API_BASE + "/genimg", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ prompt: prompt }) })
@@ -1197,6 +1206,39 @@
     var b = e.target.closest("[data-sugg]"); if (!b || busy) return;
     $("input").value = b.getAttribute("data-sugg");
     send();
+  });
+
+  /* ----- 性别选择后的推荐人设 / 昵称（不预设默认性别） ----- */
+  var GENDER_REC = {
+    f: {
+      personas: ["温柔粘人，爱撒娇耍赖，但也会照顾人", "表面清冷实则心软，嘴硬心软型", "活泼爱闹的小女生，喜欢逗人"],
+      calls: ["哥哥", "主人", "亲爱的", "老公"],
+    },
+    m: {
+      personas: ["外冷内热，话不多但句句戳心，默默宠人", "阳光开朗，爱运动，笑起来很亮", "成熟稳重，包容体贴，有点占有欲"],
+      calls: ["宝宝", "老婆", "亲爱的", "小姐姐"],
+    },
+  };
+  function paintRec() {
+    var box = $("eRec"); if (!box) return;
+    var r = GENDER_REC[$("eGender").value];
+    if (!r) { box.style.display = "none"; box.innerHTML = ""; return; }
+    box.style.display = "";
+    box.innerHTML = '<div class="rec-t">推荐人设（点选填入）</div>' +
+      r.personas.map(function (s) { return '<span class="rec-chip" data-recp="' + esc(s) + '">' + esc(s) + "</span>"; }).join("") +
+      '<div class="rec-t">推荐昵称（TA 怎么叫你）</div>' +
+      r.calls.map(function (s) { return '<span class="rec-chip" data-recc="' + esc(s) + '">' + esc(s) + "</span>"; }).join("");
+  }
+  $("eGender").addEventListener("change", paintRec);
+  $("eRec").addEventListener("click", function (e) {
+    var p = e.target.closest("[data-recp]"), c = e.target.closest("[data-recc]");
+    if (p) {
+      var t = p.getAttribute("data-recp");
+      var cur = $("ePersona").value.trim();
+      $("ePersona").value = cur ? cur + "，" + t : t;
+    } else if (c) {
+      $("eCallMe").value = c.getAttribute("data-recc");
+    }
   });
   $("send").addEventListener("click", send);
   $("input").addEventListener("input", function () { autoGrow(); updateSend(); });
