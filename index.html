@@ -733,7 +733,7 @@
             lines.forEach(function (line) {
               line = line.trim(); if (line.indexOf("data:") !== 0) return;
               var data = line.slice(5).trim(); if (data === "[DONE]") return;
-              try { var j = JSON.parse(data); var delta = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content; if (delta) { acc += delta; bubble.textContent = cleanReply(acc); scrollBottom(true); } } catch (e) {}
+              try { var j = JSON.parse(data); var delta = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content; if (delta) { acc += delta; bubble.innerHTML = bubbleHtml(cleanReply(acc)); scrollBottom(true); } } catch (e) {}
             });
             pump();
           }).catch(function (e) { var err = e instanceof Error ? e : new Error(String(e)); if (acc) err.partial = true; reject(err); });
