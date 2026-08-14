@@ -1194,9 +1194,10 @@
     var g = profileGender(p);
     var styleTxt = { anime: "日系动漫风格", d3: "皮克斯迪士尼3D渲染风格", real: "写实摄影风格" }[$("eAvStyle").value] || "日系动漫风格";
     var prompt = "恋人app的角色头像，肖像构图，头肩特写，高质量。气质要温柔撩人、有恋爱感：带一点笑意或撩人的眼神、看向镜头，柔和暖光，氛围浪漫松弛，不要严肃、不要刻板证件照感。人物设定：" + desc.slice(0, 300) + "。" + (g ? "角色性别：" + (g === "f" ? "女" : "男") + "。" : "") + "风格：" + styleTxt + "。";
+    var bare = "恋人app的角色头像，肖像构图，头肩特写，高质量。温柔撩人的气质，带一点笑意或撩人的眼神、看向镜头，柔和暖光，浪漫松弛氛围。" + (g ? "角色性别：" + (g === "f" ? "女" : "男") + "。" : "") + "风格：" + styleTxt + "。";
     toast("头像生成中，约15秒…");
     $("btnGenAv").disabled = true;
-    fetch(API_BASE + "/genimg", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ prompt: prompt }) })
+    fetch(API_BASE + "/genimg", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ prompt: prompt, bare: bare }) })
       .then(function (r) { if (!r.ok) throw new Error("生成失败 " + r.status); return r.blob(); })
       .then(shrinkToJpeg)
       .then(function (b64) { return saveAvatar(p, b64); })
@@ -1270,7 +1271,7 @@
     var g = profileGender(active);
     var styleTxt = { anime: "日系动漫风格", d3: "皮克斯迪士尼3D渲染风格", real: "写实摄影风格" }[active.avStyle] || "日系动漫风格";
     var prompt = "角色发来的照片，自然真实的生活感，表情松弛带一点撩人。人物设定：" + (active.persona || "").slice(0, 200) + "。" + (g ? "角色性别：" + (g === "f" ? "女" : "男") + "。" : "") + "画面内容：" + desc + "。风格：" + styleTxt + "。";
-    fetch(API_BASE + "/genimg", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ prompt: prompt, route: intimate ? "nsfw" : "safe" }) })
+    fetch(API_BASE + "/genimg", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ prompt: prompt, route: intimate ? "nsfw" : "safe", bare: "角色发来的生活照，自然真实，表情松弛带一点撩人。" + (g ? "角色性别：" + (g === "f" ? "女" : "男") + "。" : "") + "风格：" + styleTxt + "。" }) })
       .then(function (r) { if (!r.ok) throw 0; return r.blob(); })
       .then(function (b) {
         return new Promise(function (res, rej) {

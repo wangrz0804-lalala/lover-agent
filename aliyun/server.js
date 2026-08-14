@@ -128,11 +128,11 @@ async function genImg2(prompt) {
   return null;
 }
 function sanitizePrompt(p) {
-  return String(p).replace(/(裸|赤裸|私处|下体|阴茎|阴道|乳头|乳晕|臀|穴|做爱|性交|插入|射|喘息|缠绵|云雨|高潮)/g, "").replace(/亲密[^，。；\n]*/g, "拥抱");
+  return String(p).replace(/(裸|赤裸|私处|下体|阴茎|阴道|乳头|乳晕|臀|穴|做爱|性交|插入|射|喘息|缠绵|云雨|高潮|鸡巴|肉棒|阳具|阴蒂|骚|浪叫|潮吹|发情|勾引|挑逗|娇喘|呻吟|情欲|欲望|舔|吮|操|肏|奶子|酥|麻|湿)/g, "").replace(/亲密[^，。；\n]*/g, "拥抱");
 }
-async function genImage(route, prompt) {
-  if (route === "nsfw") return (await genImg2(prompt)) || (await genWan(sanitizePrompt(prompt)));
-  return (await genWan(prompt)) || (await genImg2(prompt)) || (await genWan(sanitizePrompt(prompt)));
+async function genImage(route, prompt, bare) {
+  if (route === "nsfw") return (await genImg2(prompt)) || (await genWan(sanitizePrompt(prompt))) || (bare ? await genWan(bare) : null);
+  return (await genWan(prompt)) || (await genImg2(prompt)) || (await genWan(sanitizePrompt(prompt))) || (bare ? await genWan(bare) : null);
 }
 
 /* ---------- 路由 ---------- */
@@ -200,7 +200,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && url === "/genimg") {
     const prompt = String(body.prompt || "").trim().slice(0, 800);
     if (!prompt) return json(res, 400, { error: "prompt 不能为空" });
-    const buf = await genImage(body.route === "nsfw" ? "nsfw" : "safe", prompt);
+    const buf = await genImage(body.route === "nsfw" ? "nsfw" : "safe", prompt, String(body.bare || "").slice(0, 300));
     if (!buf) return json(res, 502, { error: "生图失败：两条线路都不可用或被拦截" });
     cors(res);
     res.writeHead(200, { "Content-Type": "image/jpeg", "Content-Length": buf.length });
