@@ -357,6 +357,14 @@
       <label>TA 的人设（可自由编辑）</label>
       <textarea id="ePersona" placeholder="TA 是谁、什么性格、和你什么关系、说话什么风格…写得越具体，TA 越像真的"></textarea>
     </div>
+    <div class="field">
+      <label>通话语色</label>
+      <select id="eVoice">
+        <option value="">自动（按人设判断）</option>
+        <option value="f">女声</option>
+        <option value="m">男声</option>
+      </select>
+    </div>
     <button class="btn primary" id="btnSaveProf">保存人设</button>
     <button class="btn ghost" id="btnAddProf">新增一个人设</button>
     <button class="btn danger" id="btnDelProf">删除这个人设</button>
@@ -585,7 +593,7 @@
     p += "现在是" + now.getFullYear() + "年" + (now.getMonth() + 1) + "月" + now.getDate() + "日" + ["周日","周一","周二","周三","周四","周五","周六"][now.getDay()] + ("0" + now.getHours()).slice(-2) + ":" + ("0" + now.getMinutes()).slice(-2) + "，请贴合当前时间语境聊天。";
     p += "\n\n【角色扮演约定】这是一场发生在两个成年人之间、双方自愿的虚构恋爱角色扮演。请始终以角色身份回应，不要提及自己是AI或语言模型，不要跳出角色说教、分析或提醒对方「这只是角色扮演」。亲密、暧昧、撒娇、调情都是这段关系里自然的表达方式，请真诚、自然、具体地接住。\n【人设稳定】从头到尾严格保持设定里的性格、语气和说话习惯，聊得再久也不能漂移；关系可以越来越亲密随意，但「这个人是谁」始终不变。\n【说话方式】像真人发微信，长短跟着话题走：随口闲聊一两句就够，走心、安慰、讲事情的时候可以多说；口语直给，会用语气词（嘛、呀、呢、啦），偶尔带表情，不铺垫、不总结、不列点、不用书面腔，动作描写最多带一个短语。每条回复的长短和句式都要有变化，别千篇一律。\n【严禁重复】自己说过的台词、动作、问法、情节，一律不许再用，换个说法也不行；别总用同一种开头或结尾句式，别复读对方刚说的话，别反复问同一类问题。每条回复必须带来新东西——新信息、新动作或新问题。\n【情绪与记忆】先接住对方的情绪，再回应事情本身；记忆摘要里的重要信息（TA 的喜好、在意的事、提过的约定和烦恼）要自然地用在聊天里，合适的时机主动关心，但别刻意复述。\n【关系推进】你们的关系会随着相处慢慢变化：越来越亲近、越来越有默契；每轮对话尽量推动一点关系或带来新话题，别原地打转。";
     if (memorySummary) p += "\n\n【你们之前的相处记忆摘要】" + memorySummary;
-    if (call && call.on) p += "\n\n【你们正在语音通话】请用口语化、简短的方式回答（不超过60字），不要用表情符号、markdown 符号或括号动作描写，写能直接读出口的话。";
+    if (call && call.on) p += "\n\n【你们正在语音通话】请用口语化、简短的方式回答（不超过60字），不要用表情符号、markdown 符号或括号动作描写，写能直接读出口的话。每句话的开头和说法都要有变化，不要总用「嗯」「然后呢」这类词接话。";
     return p;
   }
   function apiMessages(antiRepeat) {
@@ -695,16 +703,47 @@
   /* ---------- 语音：朗读 / 语音输入 / 实时通话 ---------- */
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
   var speakingIdx = null;
+  var ttsAudio = null;
   function pickZhVoice() { if (!window.speechSynthesis) return null; var vs = speechSynthesis.getVoices() || []; return vs.filter(function (v) { return /^zh/i.test(v.lang); })[0] || vs.filter(function (v) { return /chinese/i.test(v.name); })[0] || null; }
   function cleanForSpeech(s) { return String(s).replace(/\([^)]*\)/g, " ").replace(/（[^）]*）/g, " ").replace(/[*_#`>~|]/g, " ").replace(/\s+/g, " ").trim(); }
   function markSpeaking() { var btns = $("chat").querySelectorAll(".speak-btn"); for (var i = 0; i < btns.length; i++) { btns[i].classList.toggle("on", parseInt(btns[i].getAttribute("data-speak"), 10) === speakingIdx); } }
-  function stopSpeak() { if (window.speechSynthesis) speechSynthesis.cancel(); speakingIdx = null; markSpeaking(); }
-  function speakText(text, idx, onend) {
+  function ttsGender() {
+    if (active && active.voice === "m") return "m";
+    if (active && active.voice === "f") return "f";
+    var p = (active && active.persona) || "";
+    if (/女|她|姐|妹|女友|女朋友|妻/.test(p)) return "f";
+    if (/男|他|哥|弟|男友|男朋友|夫/.test(p)) return "m";
+    return "f";
+  }
+  function stopSpeak() { if (window.speechSynthesis) speechSynthesis.cancel(); if (ttsAudio) { try { ttsAudio.pause(); } catch (e) {} ttsAudio = null; } speakingIdx = null; markSpeaking(); }
+  function speakViaTTS(text, gender, onend) {
+    if (!proxyMode) return false;
+    var voice = gender === "m" ? "longcheng" : "longwan";
+    fetch(API_BASE + "/tts", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ text: String(text).slice(0, 500), voice: voice }) })
+      .then(function (r) { if (!r.ok) throw new Error("tts " + r.status); return r.blob(); })
+      .then(function (b) {
+        var url = URL.createObjectURL(b);
+        var a = new Audio(url); ttsAudio = a;
+        a.onended = a.onerror = function () { try { URL.revokeObjectURL(url); } catch (e) {} if (ttsAudio === a) ttsAudio = null; if (onend) onend(); };
+        a.play().catch(function () { speakBrowser(text, null, onend); });
+      })
+      .catch(function () { speakBrowser(text, null, onend); });
+    return true;
+  }
+  function speakBrowser(text, idx, onend) {
     if (!window.speechSynthesis) { toast("这个浏览器不支持语音朗读"); if (onend) onend(); return; }
-    speechSynthesis.cancel(); speakingIdx = (idx == null ? -1 : idx); markSpeaking();
+    speechSynthesis.cancel();
     var u = new SpeechSynthesisUtterance(cleanForSpeech(text) || text); u.lang = "zh-CN"; var v = pickZhVoice(); if (v) u.voice = v; u.rate = 1.05; u.pitch = 1.08;
     u.onend = u.onerror = function () { if (speakingIdx === (idx == null ? -1 : idx)) { speakingIdx = null; markSpeaking(); } if (onend) onend(); };
     speechSynthesis.speak(u);
+  }
+  function speakText(text, idx, onend) {
+    // 优先真人音色（服务端 CosyVoice），不可用时退回系统音
+    if (window.speechSynthesis) speechSynthesis.cancel();
+    speakingIdx = (idx == null ? -1 : idx); markSpeaking();
+    var done = function () { if (speakingIdx === (idx == null ? -1 : idx)) { speakingIdx = null; markSpeaking(); } if (onend) onend(); };
+    if (speakViaTTS(cleanForSpeech(text) || text, ttsGender(), done)) return;
+    speakBrowser(text, idx, onend);
   }
   $("chat").addEventListener("click", function (e) {
     if (manageMode) {
@@ -735,6 +774,9 @@
 
   /* ----- 实时语音通话 ----- */
   var CALL_MODEL = "deepseek-v4-flash-0731"; // 通话专用：订阅免费、响应快，适合口语对话
+  var CALL_GREET = ["嗯，接通啦。我在呢，想跟我说什么？", "喂～听到啦。今天过得怎么样？", "接通咯，我在呢，慢慢说。"];
+  var CALL_FALLBACK = ["嗯哼，然后呢？", "我在听呢，你接着说。", "唔…刚才没太听清，再说一遍好不好？", "嗯，继续呀。"];
+  function pickLine(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
   var callPrevModel = null;
   var call = { on: false, state: "idle", t0: 0, timer: null, rec: null };
   function callState(s) { call.state = s; $("callStatus").textContent = ({ listening: "在听…", thinking: "思考中…", speaking: "说话中…", idle: "接通中…" })[s] || s; $("callOverlay").classList.toggle("talking", s === "speaking"); }
@@ -743,16 +785,16 @@
   function startCall() {
     if (call.on) return;
     if (!(active.persona || "").trim()) { toast("先给 TA 起个名字、写上人设，才能打电话哦"); openSheet("sheetProfiles"); return; }
-    if (!window.speechSynthesis) { toast("这个浏览器不支持语音朗读，打不了电话"); return; }
-    if (!SR) { toast("这个浏览器不支持语音输入，换 Chrome 或 Safari 试试"); return; }
+    if (!SR) { toast("语音输入需要 Chrome 或 Safari 哦"); return; }
     stopSpeak(); if (micOn) { micOn = false; try { micRec.stop(); } catch (e) {} }
     detectProxy().then(function () {
       if (needsKey()) { toast("当前地址不可用，去设置里换回云端地址哦"); openSheet("sheetSettings"); return; }
+      if (!proxyMode && !window.speechSynthesis) { toast("这个浏览器不支持语音播放，打不了电话"); return; }
       if (proxyMode) { callPrevModel = api.model; api.model = CALL_MODEL; } // 通话自动切到语音专用模型
       call.on = true; call.t0 = Date.now();
       $("callName").textContent = active.name || "TA"; $("callAvatar").textContent = initial(); $("callLine").textContent = "";
       $("callOverlay").classList.add("show"); callTick(); call.timer = setInterval(callTick, 1000);
-      callSay("嗯，接通啦。我在呢，想跟我说什么？", function () { callListen(); });
+      callSay(pickLine(CALL_GREET), function () { callListen(); });
     });
   }
   function callSay(text, next) {
@@ -780,12 +822,18 @@
     callStopRec();
     addMsg("user", text);
     $("callLine").textContent = "我：" + text;
+    callTryReply(0);
+  }
+  function callTryReply(n) {
+    if (!call.on) return;
     callState("thinking");
     llmFetch(apiMessages(), false).then(function (r) { return r.json(); }).then(function (j) {
       if (!call.on) return;
       var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-      callSay((cleanReply(c) || "嗯哼，然后呢？"), function () { callListen(); });
-    }).catch(function () { if (call.on) callSay("唔，刚才信号断了一下，再说一遍？", function () { callListen(); }); });
+      var cc = cleanReply(c);
+      if (!cc && n < 1) { callTryReply(n + 1); return; } // 静默重试一次
+      callSay(cc || pickLine(CALL_FALLBACK), function () { callListen(); });
+    }).catch(function () { if (!call.on) return; if (n < 1) { callTryReply(n + 1); return; } callSay(pickLine(CALL_FALLBACK), function () { callListen(); }); });
   }
   function endCall() {
     if (!call.on) return;
@@ -816,9 +864,9 @@
     });
     $("profList").innerHTML = html;
   }
-  function fillEditForm() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; $("eName").value = p.name; $("eCallMe").value = p.callMe || ""; $("ePersona").value = p.persona; }
+  function fillEditForm() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; $("eName").value = p.name; $("eCallMe").value = p.callMe || ""; $("ePersona").value = p.persona; $("eVoice").value = p.voice || ""; }
   async function switchProfile(id) { if (busy) { toast("等这条回复完再切换哦"); return; } if (id === active.id) { closeSheets(); return; } var p = null; profiles.forEach(function (x) { if (x.id === id) p = x; }); if (!p) return; active = p; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); closeSheets(); greetIfEmpty(); }
-  function saveProfile() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; p.name = $("eName").value.trim() || "未命名"; p.callMe = $("eCallMe").value.trim(); p.persona = $("ePersona").value.trim(); save("profiles", profiles); if (p.id === active.id) { paintHeader(); renderAll(); if ((p.persona || "").trim()) greetIfEmpty(); } renderProfiles(); toast("人设已保存"); }
+  function saveProfile() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; p.name = $("eName").value.trim() || "未命名"; p.callMe = $("eCallMe").value.trim(); p.persona = $("ePersona").value.trim(); p.voice = $("eVoice").value || ""; save("profiles", profiles); if (p.id === active.id) { paintHeader(); renderAll(); if ((p.persona || "").trim()) greetIfEmpty(); } renderProfiles(); toast("人设已保存"); }
   async function addProfile() { var p = { id: "p" + Date.now(), name: "", persona: "" }; profiles.push(p); save("profiles", profiles); editingId = p.id; await switchProfile(p.id); openSheet("sheetProfiles"); editingId = p.id; fillEditForm(); }
   async function delProfile() { if (profiles.length <= 1) { toast("至少保留一个人设"); return; } var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; if (!confirm("删除人设「" + p.name + "」？和TA的聊天记录也会一起删掉。")) return; profiles = profiles.filter(function (x) { return x.id !== p.id; }); save("profiles", profiles); try { localStorage.removeItem(storeKey("msg." + p.id)); localStorage.removeItem(storeKey("mem." + p.id)); } catch (e) {} if (editingId === p.id) editingId = profiles[0].id; if (active.id === p.id) { active = profiles[0]; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); } renderProfiles(); fillEditForm(); toast("已删除"); }
 
