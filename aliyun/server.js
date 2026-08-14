@@ -110,7 +110,7 @@ const server = http.createServer(async (req, res) => {
       let q; try { q = new URL(req.url, "http://x").searchParams; } catch (e) { return json(res, 400, { error: "bad url" }); }
       if (q.get("token") !== APP_TOKEN) return json(res, 401, { error: "token 校验失败" });
       const key = safeKey(q.get("key"));
-      if (!key || !/^lover\.[0-9a-f]{16}\.avatar\./.test(key)) return json(res, 400, { error: "非法 key" });
+      if (!key || !/^lover\.[0-9a-f]{16}\.(avatar|pic)\./.test(key)) return json(res, 400, { error: "非法 key" });
       let r;
       try { r = await ossRequest("GET", "sync/" + key + ".jpg"); } catch (e) { return json(res, 502, { error: "头像服务连接失败" }); }
       if (!r.ok) return json(res, 404, { error: "头像不存在" });
@@ -132,7 +132,7 @@ const server = http.createServer(async (req, res) => {
   /* --- 头像上传（base64 -> OSS） --- */
   if (req.method === "POST" && url === "/avatar") {
     const key = safeKey(body.key);
-    if (!key || !/^lover\.[0-9a-f]{16}\.avatar\./.test(key)) return json(res, 400, { error: "非法 key" });
+    if (!key || !/^lover\.[0-9a-f]{16}\.(avatar|pic)\./.test(key)) return json(res, 400, { error: "非法 key" });
     if (body.action === "del") {
       try { await ossRequest("DELETE", "sync/" + key + ".jpg"); } catch (e) { return json(res, 502, { error: "头像服务连接失败" }); }
       return json(res, 200, { success: true });

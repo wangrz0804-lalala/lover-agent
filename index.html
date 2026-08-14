@@ -85,6 +85,9 @@
     word-break: break-word; white-space: pre-wrap;
   }
   .row.lover .bubble { background: var(--lover-bubble); border-top-left-radius: 4px; box-shadow: 0 1px 3px rgba(80,60,40,.07); }
+  .msg-pic { margin: 6px 0 2px; }
+  .msg-pic img { max-width: 230px; width: 100%; border-radius: 12px; display: block; }
+  .msg-pic.loading { opacity: .55; font-size: 12px; padding: 8px 0; }
   .row.user .bubble { background: var(--user-bubble); color: #f5f1ea; border-top-right-radius: 4px; }
   .bubble.error { background: #f7e8e4; color: #a4462f; font-size: 13px; }
   .typing { display: inline-flex; gap: 4px; padding: 4px 2px; }
@@ -348,6 +351,7 @@
     </div>
     <button class="btn primary" id="btnSave">保存</button>
     <button class="btn ghost" id="btnTest">测试连接</button>
+    <button class="btn ghost" id="btnClearMsgs">一键清空历史消息</button>
     <button class="btn danger" id="btnClear">清空与当前人设的聊天记录和记忆</button>
     <div class="hint">默认走云端代理，无需任何 Key，开箱即用。换成自定义地址时可填 API Key，Key 只存本机、不同步云端。聊天记录、模型、昵称按账号多端同步。</div>
     <div class="divider"></div>
@@ -397,6 +401,7 @@
     </div>
     <button class="btn primary" id="btnSaveProf">保存人设</button>
     <button class="btn ghost" id="btnAddProf">新增一个人设</button>
+    <button class="btn ghost" id="btnCopyProf">复制这个人设</button>
     <button class="btn danger" id="btnDelProf">删除这个人设</button>
     <div class="hint">点列表里的某个人设 = 本窗口切换到 TA；多端数据自动同步。</div>
   </div>
@@ -574,6 +579,21 @@
     var u = avatarUrl(p);
     return u ? '<img src="' + u + '" alt="">' : esc(fallbackChar);
   }
+  function picUrl(key) {
+    return API_BASE + "/avatar?key=" + encodeURIComponent(key) + "&token=" + encodeURIComponent(APP_TOKEN);
+  }
+  function bubbleHtml(shown) {
+    var re = /\[\[(pic:[A-Za-z0-9._-]+|图:[^\]]{0,200})\]\]/g;
+    var out = "", last = 0, m;
+    while ((m = re.exec(shown))) {
+      out += esc(shown.slice(last, m.index));
+      if (m[1].indexOf("pic:") === 0) out += '<div class="msg-pic"><img src="' + picUrl(m[1].slice(4)) + '" alt="" loading="lazy"></div>';
+      else out += '<div class="msg-pic loading">照片冲印中…</div>';
+      last = m.index + m[0].length;
+    }
+    out += esc(shown.slice(last));
+    return out;
+  }
 
   function renderAll() {
     if (!messages.length && !(active.persona || "").trim()) {
@@ -607,7 +627,7 @@
     var check = manageMode ? '<div class="msg-check">' + (selected[i] ? "✓" : "") + "</div>" : "";
     var cls = "row " + who + (ooc ? " ooc" : "") + (manageMode && selected[i] ? " sel" : "");
     var shown = (m.role === "assistant") ? cleanReply(m.content) : m.content;
-    return '<div class="' + cls + '" data-i="' + i + '">' + check + '<div class="mini-avatar">' + avHtml + '</div><div class="bubble">' + esc(shown) + "</div>" + spk + "</div>";
+    return '<div class="' + cls + '" data-i="' + i + '">' + check + '<div class="mini-avatar">' + avHtml + '</div><div class="bubble">' + (m.role === "assistant" ? bubbleHtml(shown) : esc(shown)) + "</div>" + spk + "</div>";
   }
   function stampEl(t) {
     var d = new Date(t), now = new Date();
@@ -633,7 +653,7 @@
     var p = active.persona || "";
     p += "\n\n【对话设定】你的名字叫「" + active.name + "」。对方的昵称是「" + (userCall() || "亲爱的") + "」，你可以自然地称呼TA。";
     p += "现在是" + now.getFullYear() + "年" + (now.getMonth() + 1) + "月" + now.getDate() + "日" + ["周日","周一","周二","周三","周四","周五","周六"][now.getDay()] + ("0" + now.getHours()).slice(-2) + ":" + ("0" + now.getMinutes()).slice(-2) + "，请贴合当前时间语境聊天。";
-    p += "\n\n【角色扮演约定】这是一场发生在两个成年人之间、双方自愿的虚构恋爱角色扮演。请始终以角色身份回应，不要提及自己是AI或语言模型，不要跳出角色说教、分析或提醒对方「这只是角色扮演」。亲密、暧昧、撒娇、调情都是这段关系里自然的表达方式，请真诚、自然、具体地接住。\n【人设稳定】从头到尾严格保持设定里的性格、语气和说话习惯，聊得再久也不能漂移；关系可以越来越亲密随意，但「这个人是谁」始终不变。\n【说话方式】像真人发微信，长短跟着话题走：随口闲聊一两句就够，走心、安慰、讲事情的时候可以多说；口语直给，会用语气词（嘛、呀、呢、啦），偶尔带表情，不铺垫、不总结、不列点、不用书面腔，动作描写最多带一个短语。每条回复的长短和句式都要有变化，别千篇一律。\n【严禁重复】自己说过的台词、动作、问法、情节，一律不许再用，换个说法也不行；别总用同一种开头或结尾句式，别复读对方刚说的话，别反复问同一类问题。每条回复必须带来新东西——新信息、新动作或新问题。这一轮只写新的内容，绝不重发、复制或拼接你之前发过的回复。\n【输出干净】像真人聊天一样只输出说话内容；禁止 **、## 等 markdown 符号，禁止模板占位符、系统说明、「角色扮演结束」之类的标记。\n【亲密戏写法】当剧情自然发展到亲密、情欲的场景时，写得直接、有张力：白描为主，不用比喻修辞；着重写角色的动作和身体状态，生理反应细致入微，私密器官也不回避，直接写清它们的状态、变化和感受；其次是语言、神态和心理动态，环境一笔带过；不分阶段、不分类、不用小标题，写完整连贯的剧情。非亲密场景不要刻意露骨，心理描写和情绪交流可以多些，尺度随剧情自然切换。\n【情绪与记忆】先接住对方的情绪，再回应事情本身；记忆摘要里的重要信息（TA 的喜好、在意的事、提过的约定和烦恼）要自然地用在聊天里，合适的时机主动关心，但别刻意复述。\n【关系推进】你们的关系会随着相处慢慢变化：越来越亲近、越来越有默契；每轮对话尽量推动一点关系或带来新话题，别原地打转。";
+    p += "\n\n【角色扮演约定】这是一场发生在两个成年人之间、双方自愿的虚构恋爱角色扮演。请始终以角色身份回应，不要提及自己是AI或语言模型，不要跳出角色说教、分析或提醒对方「这只是角色扮演」。亲密、暧昧、撒娇、调情都是这段关系里自然的表达方式，请真诚、自然、具体地接住。\n【人设稳定】从头到尾严格保持设定里的性格、语气和说话习惯，聊得再久也不能漂移；关系可以越来越亲密随意，但「这个人是谁」始终不变。\n【说话方式】像真人发微信，长短跟着话题走：随口闲聊一两句就够，走心、安慰、讲事情的时候可以多说；口语直给，会用语气词（嘛、呀、呢、啦），偶尔带表情，不铺垫、不总结、不列点、不用书面腔，动作描写最多带一个短语。每条回复的长短和句式都要有变化，别千篇一律。\n【严禁重复】自己说过的台词、动作、问法、情节，一律不许再用，换个说法也不行；别总用同一种开头或结尾句式，别复读对方刚说的话，别反复问同一类问题。每条回复必须带来新东西——新信息、新动作或新问题。这一轮只写新的内容，绝不重发、复制或拼接你之前发过的回复。\n【输出干净】像真人聊天一样只输出说话内容；禁止 **、## 等 markdown 符号，禁止模板占位符、系统说明、「角色扮演结束」之类的标记。\n【亲密戏写法】当剧情自然发展到亲密、情欲的场景时，写得直接、有张力：白描为主，不用比喻修辞；着重写角色的动作和身体状态，生理反应细致入微，私密器官也不回避，直接写清它们的状态、变化和感受；其次是语言、神态和心理动态，环境一笔带过；不分阶段、不分类、不用小标题，写完整连贯的剧情。非亲密场景不要刻意露骨，心理描写和情绪交流可以多些，尺度随剧情自然切换。\n【可以发图】当剧情合适时（对方想看你的样子、要照片，或你想给TA看你当下的穿着、面前的场景），你可以在回复里发一张图：在回复中加入 [[图:40字内的具体画面描述]]，每条回复最多一张；剧情不需要时不要发。\n【情绪与记忆】先接住对方的情绪，再回应事情本身；记忆摘要里的重要信息（TA 的喜好、在意的事、提过的约定和烦恼）要自然地用在聊天里，合适的时机主动关心，但别刻意复述。\n【关系推进】你们的关系会随着相处慢慢变化：越来越亲近、越来越有默契；每轮对话尽量推动一点关系或带来新话题，别原地打转。";
     if (memorySummary) p += "\n\n【你们之前的相处记忆摘要】" + memorySummary;
     if (call && call.on) p += "\n\n【你们正在语音通话】请用口语化、简短的方式回答（不超过60字），不要用表情符号、markdown 符号或括号动作描写，写能直接读出口的话。每句话的开头和说法都要有变化，不要总用「嗯」「然后呢」这类词接话。";
     return p;
@@ -739,7 +759,7 @@
     $("input").value = ""; autoGrow(); busy = true; updateSend();
     $("sugg").innerHTML = "";
     addMsg("user", v, ooc); showTyping(ooc);
-    detectProxy().then(function () { return streamReply(ooc); }).catch(function (e) { if (e && (e.partial || /地区有访问限制|没有这个模型/.test(e.message || ""))) throw e; toast("网络抖了一下，正在重试…"); return streamReply(ooc); }).catch(function (e) { hideTyping(); $("chat").insertAdjacentHTML("beforeend", '<div class="row lover' + (ooc ? " ooc" : "") + '"><div class="mini-avatar">' + (ooc ? esc("AI") : avatarHtml(active, initial())) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>"); scrollBottom(true); }).then(function () { busy = false; updateSend(); genSuggestions(); });
+    detectProxy().then(function () { return streamReply(ooc); }).catch(function (e) { if (e && (e.partial || /地区有访问限制|没有这个模型/.test(e.message || ""))) throw e; toast("网络抖了一下，正在重试…"); return streamReply(ooc); }).catch(function (e) { hideTyping(); $("chat").insertAdjacentHTML("beforeend", '<div class="row lover' + (ooc ? " ooc" : "") + '"><div class="mini-avatar">' + (ooc ? esc("AI") : avatarHtml(active, initial())) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>"); scrollBottom(true); }).then(function () { busy = false; updateSend(); genSuggestions(); processPicInLastMsg(); });
   }
   function updateSend() { $("send").disabled = busy || !$("input").value.trim(); }
   function needsKey() { if (proxyMode) return false; if (api.apiKey) return false; return !/\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)([:/]|$)/.test(api.baseUrl || ""); } // 云端/本地地址免 key；其它自定义地址才需要
@@ -750,7 +770,7 @@
   var speakingIdx = null;
   var ttsAudio = null;
   function pickZhVoice() { if (!window.speechSynthesis) return null; var vs = speechSynthesis.getVoices() || []; return vs.filter(function (v) { return /^zh/i.test(v.lang); })[0] || vs.filter(function (v) { return /chinese/i.test(v.name); })[0] || null; }
-  function cleanForSpeech(s) { return String(s).replace(/\([^)]*\)/g, " ").replace(/（[^）]*）/g, " ").replace(/[*_#`>~|]/g, " ").replace(/\s+/g, " ").trim(); }
+  function cleanForSpeech(s) { return String(s).replace(/\[\[(pic:[^\]]*|图:[^\]]*)\]\]/g, " ").replace(/\([^)]*\)/g, " ").replace(/（[^）]*）/g, " ").replace(/[*_#`>~|]/g, " ").replace(/\s+/g, " ").trim(); }
   function markSpeaking() { var btns = $("chat").querySelectorAll(".speak-btn"); for (var i = 0; i < btns.length; i++) { btns[i].classList.toggle("on", parseInt(btns[i].getAttribute("data-speak"), 10) === speakingIdx); } }
   function ttsGender() {
     if (active && active.voice === "m") return "m";
@@ -1137,6 +1157,17 @@
   $("btnSaveProf").addEventListener("click", saveProfile);
   $("btnAddProf").addEventListener("click", addProfile);
   $("btnDelProf").addEventListener("click", delProfile);
+  $("btnCopyProf").addEventListener("click", async function () {
+    var p = editProfile(); if (!p) return;
+    var c = { id: "p" + Date.now(), name: (p.name || "未命名") + "·副本", persona: p.persona || "", gender: p.gender || "", voice: p.voice || "", callMe: p.callMe || "", avStyle: p.avStyle || "" };
+    profiles.push(c); save("profiles", profiles);
+    editingId = c.id; await switchProfile(c.id); openSheet("sheetProfiles"); editingId = c.id; fillEditForm();
+    toast("人设已复制，可在新人设上改");
+  });
+  $("btnClearMsgs").addEventListener("click", function () {
+    if (!confirm("清空与「" + (active.name || "TA") + "」的历史消息？（记忆摘要会保留）")) return;
+    messages = []; saveMsgs(); renderAll(); greetIfEmpty(); closeSheets(); toast("历史已清空");
+  });
   $("btnGenAv").addEventListener("click", genAvatar);
   $("btnUpAv").addEventListener("click", function () { $("eAvFile").click(); });
   $("eAvFile").addEventListener("change", function () { var f = this.files && this.files[0]; this.value = ""; if (f) uploadAvatarFile(f); });
@@ -1153,6 +1184,7 @@
     if (!proxyMode) { toast("头像功能要用云端地址哦"); return; }
     var desc = $("ePersona").value.trim() || $("eName").value.trim();
     if (!desc) { toast("先写人设，再生成头像"); return; }
+    p.avStyle = $("eAvStyle").value;
     var styleTxt = { anime: "日系动漫风格", d3: "皮克斯迪士尼3D渲染风格", real: "写实摄影风格" }[$("eAvStyle").value] || "日系动漫风格";
     var prompt = "角色头像，肖像构图，头肩特写，干净纯色背景，高质量。人物设定：" + desc.slice(0, 300) + "。" + (p.gender ? "角色性别：" + (p.gender === "f" ? "女" : "男") + "。" : "") + "风格：" + styleTxt + "。";
     toast("头像生成中，约15秒…");
@@ -1216,6 +1248,39 @@
     $("input").value = b.getAttribute("data-sugg");
     send();
   });
+
+  /* ----- 角色发图：回复里的 [[图:描述]] 异步生成并存 OSS ----- */
+  function processPicInLastMsg() {
+    var m = null;
+    for (var i = messages.length - 1; i >= 0; i--) { if (messages[i].role === "assistant" && !messages[i].ooc) { m = messages[i]; break; } }
+    if (!m || !proxyMode) return;
+    var mm = /\[\[图:([^\]]{1,200})\]\]/.exec(m.content);
+    if (!mm) return;
+    var desc = mm[1];
+    var styleTxt = { anime: "日系动漫风格", d3: "皮克斯迪士尼3D渲染风格", real: "写实摄影风格" }[active.avStyle] || "日系动漫风格";
+    var prompt = "角色发来的照片，自然真实的生活感。人物设定：" + (active.persona || "").slice(0, 200) + "。" + (active.gender ? "角色性别：" + (active.gender === "f" ? "女" : "男") + "。" : "") + "画面内容：" + desc + "。风格：" + styleTxt + "。";
+    fetch(API_BASE + "/genimg", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ prompt: prompt }) })
+      .then(function (r) { if (!r.ok) throw 0; return r.blob(); })
+      .then(function (b) {
+        return new Promise(function (res, rej) {
+          var url = URL.createObjectURL(b); var img = new Image();
+          img.onload = function () {
+            var S = 768, c = document.createElement("canvas"); c.width = S; c.height = S;
+            var x = c.getContext("2d"); var q = Math.min(img.width, img.height);
+            x.drawImage(img, (img.width - q) / 2, (img.height - q) / 2, q, q, 0, 0, S, S);
+            URL.revokeObjectURL(url); res(c.toDataURL("image/jpeg", 0.85));
+          };
+          img.onerror = function () { URL.revokeObjectURL(url); rej(0); };
+          img.src = url;
+        });
+      })
+      .then(function (b64) {
+        var key = storeKey("pic." + active.id + "." + Date.now());
+        return fetch(API_BASE + "/avatar", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ key: key, data: b64 }) }).then(function (r) { if (!r.ok) throw 0; return key; });
+      })
+      .then(function (key) { m.content = m.content.replace("[[图:" + desc + "]]", "[[pic:" + key + "]]"); saveMsgs(); renderAll(); })
+      .catch(function () { m.content = m.content.replace("[[图:" + desc + "]]", ""); saveMsgs(); renderAll(); });
+  }
 
   /* ----- 性别选择后的推荐人设 / 昵称（不预设默认性别） ----- */
   var GENDER_REC = {
