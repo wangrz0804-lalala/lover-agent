@@ -519,7 +519,10 @@
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   var THINK_BLOCK_RE = new RegExp("<" + "think>[\\s\\S]*?<" + "/think>", "gi");
   var THINK_OPEN_RE = new RegExp("^\\s*<" + "think>", "gi");
-  function cleanReply(s) { s = String(s == null ? "" : s); s = s.replace(THINK_BLOCK_RE, ""); s = s.replace(THINK_OPEN_RE, ""); return s.trim(); } // 剥掉推理模型泄漏的思考块 / 未闭合开头
+  var THINK_CLOSE_RE = new RegExp("<" + "/think>", "gi");
+  var TOOL_BLOCK_RE = new RegExp("<" + "tool_call>[\\s\\S]*?<" + "/tool_call>", "gi");
+  var TOOL_TAG_RE = new RegExp("<" + "/?tool_call>", "gi");
+  function cleanReply(s) { s = String(s == null ? "" : s); s = s.replace(THINK_BLOCK_RE, ""); s = s.replace(TOOL_BLOCK_RE, ""); s = s.replace(THINK_OPEN_RE, ""); s = s.replace(THINK_CLOSE_RE, ""); s = s.replace(TOOL_TAG_RE, ""); return s.trim(); } // 剥掉推理/工具调用泄漏的标签
   function initial() { return (active.name || "TA").trim().charAt(0); }
 
   function renderAll() {
@@ -658,7 +661,7 @@
               try { var j = JSON.parse(data); var delta = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content; if (delta) { acc += delta; bubble.textContent = cleanReply(acc); scrollBottom(true); } } catch (e) {}
             });
             pump();
-          }).catch(reject);
+          }).catch(function (e) { var err = e instanceof Error ? e : new Error(String(e)); if (acc) err.partial = true; reject(err); });
         }
         pump();
       }).catch(function (e) { if (e.name === "AbortError") { resolve(""); } else { reject(e); } });
@@ -682,7 +685,7 @@
     if (!ooc && !(active.persona || "").trim()) { toast("先给 TA 起个名字、写上人设哦"); openSheet("sheetProfiles"); return; }
     $("input").value = ""; autoGrow(); busy = true; updateSend();
     addMsg("user", v, ooc); showTyping(ooc);
-    detectProxy().then(function () { return streamReply(ooc); }).catch(function (e) { hideTyping(); $("chat").insertAdjacentHTML("beforeend", '<div class="row lover' + (ooc ? " ooc" : "") + '"><div class="mini-avatar">' + esc(ooc ? "AI" : initial()) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>"); scrollBottom(true); }).then(function () { busy = false; updateSend(); });
+    detectProxy().then(function () { return streamReply(ooc); }).catch(function (e) { if (e && e.partial) throw e; toast("网络抖了一下，正在重试…"); return streamReply(ooc); }).catch(function (e) { hideTyping(); $("chat").insertAdjacentHTML("beforeend", '<div class="row lover' + (ooc ? " ooc" : "") + '"><div class="mini-avatar">' + esc(ooc ? "AI" : initial()) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>"); scrollBottom(true); }).then(function () { busy = false; updateSend(); });
   }
   function updateSend() { $("send").disabled = busy || !$("input").value.trim(); }
   function needsKey() { if (proxyMode) return false; if (api.apiKey) return false; return !/\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)([:/]|$)/.test(api.baseUrl || ""); } // 云端/本地地址免 key；其它自定义地址才需要
