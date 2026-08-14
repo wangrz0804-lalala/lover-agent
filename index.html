@@ -653,7 +653,7 @@
   function llmFetchWith(cfg, messagesPayload, stream) {
     controller = typeof AbortController !== "undefined" ? new AbortController() : null;
     var signal = controller ? controller.signal : undefined;
-    if (controller && !stream) { var c = controller; setTimeout(function () { try { c.abort(); } catch (e) {} }, 90000); } // 非流式请求 90s 上限，防止后端实例挂掉时界面永远转圈
+    if (controller && !stream) { var c = controller; setTimeout(function () { try { c.abort(); } catch (e) {} }, 120000); } // 非流式请求 90s 上限，防止后端实例挂掉时界面永远转圈
     if (proxyMode) {
       // 请求阿里云 FC 的代理
       return fetch(API_BASE + "/chat", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model, stream: stream, messages: messagesPayload }), signal: signal });

@@ -201,7 +201,7 @@ const server = http.createServer(async (req, res) => {
       const tries = useOR ? 2 : 3;
       for (let attempt = 1; attempt <= tries && !upstream; attempt++) {
         const ac = new AbortController();
-        const timer = setTimeout(() => ac.abort(), 45000); // 单次建连上限，卡住就换一次重试
+        const timer = setTimeout(() => ac.abort(), 75000); // 单次建连上限，卡住就换一次重试
         try {
           const r = await fetch(upUrl, { method: "POST", headers: upHeaders, body: upBody, signal: ac.signal });
           clearTimeout(timer);
