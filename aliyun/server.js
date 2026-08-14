@@ -267,3 +267,125 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => console.log("lover-api listening on " + PORT));
+
+/* ---------- 端到端实时语音中继：浏览器 <-> FC <-> Qwen-Realtime（零依赖手写 WS） ---------- */
+const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+const RT_UP_HOST = UPSTREAM.replace("https://", "").replace(/\/compatible-mode\/v1$/, "");
+function wsFrame(opcode, buf, mask) {
+  const len = buf.length;
+  let head;
+  if (len < 126) { head = Buffer.alloc(2); head[1] = len; }
+  else if (len < 65536) { head = Buffer.alloc(4); head[1] = 126; head.writeUInt16BE(len, 2); }
+  else { head = Buffer.alloc(10); head[1] = 127; head.writeBigUInt64BE(BigInt(len), 2); }
+  head[0] = 0x80 | opcode;
+  if (!mask) return Buffer.concat([head, buf]);
+  head[1] |= 0x80;
+  const mk = crypto.randomBytes(4);
+  const masked = Buffer.alloc(len);
+  for (let i = 0; i < len; i++) masked[i] = buf[i] ^ mk[i % 4];
+  return Buffer.concat([head, mk, masked]);
+}
+function wsParser(onFrame) {
+  let buf = Buffer.alloc(0);
+  return function (chunk) {
+    buf = Buffer.concat([buf, chunk]);
+    for (;;) {
+      if (buf.length < 2) return;
+      const opcode = buf[0] & 0x0f;
+      const masked = (buf[1] & 0x80) !== 0;
+      let len = buf[1] & 0x7f, off = 2;
+      if (len === 126) { if (buf.length < 4) return; len = buf.readUInt16BE(2); off = 4; }
+      else if (len === 127) { if (buf.length < 10) return; len = Number(buf.readBigUInt64BE(2)); off = 10; }
+      let mk = null;
+      if (masked) { if (buf.length < off + 4) return; mk = buf.slice(off, off + 4); off += 4; }
+      if (buf.length < off + len) return;
+      let payload = buf.slice(off, off + len);
+      if (mk) { const u = Buffer.alloc(len); for (let i = 0; i < len; i++) u[i] = payload[i] ^ mk[i % 4]; payload = u; }
+      buf = buf.slice(off + len);
+      onFrame(opcode, payload);
+    }
+  };
+}
+function rtConnect(handlers) {
+  return new Promise((resolve, reject) => {
+    const tls = require("tls");
+    let handshaken = false, settled = false;
+    const sock = tls.connect(443, RT_UP_HOST, { servername: RT_UP_HOST }, () => {
+      const key = crypto.randomBytes(16).toString("base64");
+      sock.write("GET /api-ws/v1/realtime?model=qwen-audio-3.0-realtime-plus HTTP/1.1\r\nHost: " + RT_UP_HOST + "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: " + key + "\r\nSec-WebSocket-Version: 13\r\nAuthorization: Bearer " + MODEL_KEY + "\r\n\r\n");
+    });
+    const feed = wsParser((op, payload) => {
+      if (op === 0x1 && handlers.onText) handlers.onText(payload.toString());
+      else if (op === 0x8 && handlers.onClose) handlers.onClose();
+    });
+    sock.on("data", (c) => {
+      if (!handshaken) {
+        const s = c.toString("utf8");
+        const idx = s.indexOf("\r\n\r\n");
+        if (idx === -1) return;
+        if (s.slice(0, 12) !== "HTTP/1.1 101") { if (!settled) { settled = true; reject(new Error("上游 WS 握手被拒")); } sock.destroy(); return; }
+        handshaken = true;
+        if (!settled) {
+          settled = true;
+          resolve({
+            send: (obj) => { try { sock.write(wsFrame(0x1, Buffer.from(JSON.stringify(obj)), true)); } catch (e) {} },
+            close: () => { try { sock.write(wsFrame(0x8, Buffer.alloc(0), true)); sock.end(); } catch (e) {} },
+          });
+        }
+        const rest = c.slice(Buffer.byteLength(s.slice(0, idx + 4), "utf8"));
+        if (rest.length) feed(rest);
+        return;
+      }
+      feed(c);
+    });
+    sock.on("error", () => { if (!settled) { settled = true; reject(new Error("上游 WS 连接失败")); } else if (handlers.onClose) handlers.onClose(); });
+    sock.on("close", () => { if (!settled) { settled = true; reject(new Error("上游 WS 关闭")); } else if (handlers.onClose) handlers.onClose(); });
+    setTimeout(() => { if (!settled) { settled = true; reject(new Error("上游 WS 超时")); sock.destroy(); } }, 15000);
+  });
+}
+server.on("upgrade", (req, socket) => {
+  let q; try { q = new URL(req.url, "http://x").searchParams; } catch (e) { socket.destroy(); return; }
+  if ((req.url || "").indexOf("/rt") !== 0 || q.get("token") !== APP_TOKEN) { socket.destroy(); return; }
+  const key = req.headers["sec-websocket-key"];
+  if (!key) { socket.destroy(); return; }
+  socket.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " + crypto.createHash("sha1").update(key + WS_GUID).digest("base64") + "\r\n\r\n");
+  const sendClient = (obj) => { try { socket.write(wsFrame(0x1, Buffer.from(JSON.stringify(obj)), false)); } catch (e) {} };
+  let up = null, upReady = false, closed = false;
+  const pending = [];
+  const voice = (q.get("voice") || "longanlingxin").replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 40);
+  rtConnect({
+    onText: (t) => {
+      let j; try { j = JSON.parse(t); } catch (e) { return; }
+      if (j.type === "response.audio.delta") sendClient({ type: "audio.delta", audio: j.delta });
+      else if (j.type === "response.audio_transcript.delta" || j.type === "response.text.delta") sendClient({ type: "ai.text.delta", text: j.delta });
+      else if (j.type === "conversation.item.input_audio_transcription.completed") sendClient({ type: "user.text", text: j.transcript });
+      else if (j.type === "input_audio_buffer.speech_started") sendClient({ type: "vad.speech" });
+      else if (j.type === "response.done") sendClient({ type: "turn.done" });
+      else if (j.type === "session.created" || j.type === "session.updated") sendClient({ type: "rt.ready" });
+      else if (j.type === "error") sendClient({ type: "rt.error", message: (j.error && j.error.message) || "realtime 出错" });
+    },
+    onClose: () => { if (!closed) { closed = true; sendClient({ type: "rt.close" }); try { socket.end(); } catch (e) {} } },
+  }).then((h) => {
+    up = h; upReady = true;
+    h.send({ type: "session.update", session: { modalities: ["text", "audio"], voice: voice, input_audio_format: "pcm16", output_audio_format: "pcm16", turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 800 } } });
+    while (pending.length) h.send(pending.shift());
+  }).catch((e) => { sendClient({ type: "rt.error", message: String((e && e.message) || e) }); try { socket.end(); } catch (e2) {} });
+  const feed = wsParser((op, payload) => {
+    if (op === 0x8) { closed = true; if (up) up.close(); try { socket.end(); } catch (e) {} return; }
+    if (op !== 0x1) return;
+    let j; try { j = JSON.parse(payload.toString()); } catch (e) { return; }
+    if (j.type === "audio.append") {
+      const m = { type: "input_audio_buffer.append", audio: j.audio };
+      if (upReady) up.send(m); else pending.push(m);
+    } else if (j.type === "text.send") {
+      const msgs = [
+        { type: "conversation.item.create", item: { type: "message", role: "user", content: [{ type: "input_text", text: String(j.text || "") }] } },
+        { type: "response.create" },
+      ];
+      if (upReady) msgs.forEach((m) => up.send(m)); else pending.push(...msgs);
+    } else if (j.type === "hangup") { closed = true; if (up) up.close(); try { socket.end(); } catch (e) {} }
+  });
+  socket.on("data", feed);
+  socket.on("error", () => { closed = true; if (up) up.close(); });
+  socket.on("close", () => { closed = true; if (up) up.close(); });
+});

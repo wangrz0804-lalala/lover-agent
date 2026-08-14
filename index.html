@@ -785,17 +785,21 @@
   function startCall() {
     if (call.on) return;
     if (!(active.persona || "").trim()) { toast("先给 TA 起个名字、写上人设，才能打电话哦"); openSheet("sheetProfiles"); return; }
-    if (!SR) { toast("语音输入需要 Chrome 或 Safari 哦"); return; }
     stopSpeak(); if (micOn) { micOn = false; try { micRec.stop(); } catch (e) {} }
     detectProxy().then(function () {
       if (needsKey()) { toast("当前地址不可用，去设置里换回云端地址哦"); openSheet("sheetSettings"); return; }
       if (!proxyMode && !window.speechSynthesis) { toast("这个浏览器不支持语音播放，打不了电话"); return; }
-      if (proxyMode) { callPrevModel = api.model; api.model = CALL_MODEL; } // 通话自动切到语音专用模型
+      if (!proxyMode && !SR) { toast("语音输入需要 Chrome 或 Safari 哦"); return; }
       call.on = true; call.t0 = Date.now();
       $("callName").textContent = active.name || "TA"; $("callAvatar").textContent = initial(); $("callLine").textContent = "";
       $("callOverlay").classList.add("show"); callTick(); call.timer = setInterval(callTick, 1000);
-      callSay(pickLine(CALL_GREET), function () { callListen(); });
+      if (proxyMode) rtStart(ttsGender()); else legacyCallBegin(); // 云端走端到端实时语音，失败自动降级
     });
+  }
+  function legacyCallBegin() {
+    if (!SR) { toast("语音输入需要 Chrome 或 Safari 哦"); endCall(); return; }
+    if (proxyMode && callPrevModel === null) { callPrevModel = api.model; api.model = CALL_MODEL; } // 通话自动切到语音专用模型
+    callSay(pickLine(CALL_GREET), function () { callListen(); });
   }
   function callSay(text, next) {
     if (!call.on) return;
@@ -837,13 +841,103 @@
   }
   function endCall() {
     if (!call.on) return;
-    call.on = false; clearInterval(call.timer); callStopRec(); stopSpeak();
+    call.on = false; clearInterval(call.timer); callStopRec(); rtCleanup(); stopSpeak();
     if (callPrevModel !== null) { api.model = callPrevModel; callPrevModel = null; } // 恢复原聊天模型
     $("callOverlay").classList.remove("show"); $("callOverlay").classList.remove("talking");
   }
+
+  /* ----- 端到端实时通话：模型直接听+说（订阅自带 qwen-audio-3.0-realtime-plus） ----- */
+  var rt = { ws: null, ac: null, proc: null, stream: null, srcs: [], playNext: 0, gotAudio: false, intentional: false };
+  function rtStart(voice) {
+    rt.intentional = false; rt.gotAudio = false;
+    var wsUrl = API_BASE.replace(/^https/, "wss").replace(/^http/, "ws") + "/rt?token=" + encodeURIComponent(APP_TOKEN) + "&voice=" + encodeURIComponent(voice);
+    var ws = null;
+    try { ws = new WebSocket(wsUrl); } catch (e) { rtFallback("浏览器不支持实时通话"); return; }
+    rt.ws = ws;
+    ws.onopen = function () {
+      rtStartMic();
+      callState("idle");
+      ws.send(JSON.stringify({ type: "text.send", text: "（电话刚接通，你主动打个招呼，简短自然，十几字就好。）" }));
+    };
+    ws.onmessage = function (ev) {
+      var j; try { j = JSON.parse(ev.data); } catch (e) { return; }
+      if (j.type === "audio.delta") { rt.gotAudio = true; rtPlay(j.audio); }
+      else if (j.type === "ai.text.delta") { $("callLine").textContent = (active.name || "TA") + "：" + j.text; }
+      else if (j.type === "user.text") { addMsg("user", j.text); $("callLine").textContent = "我：" + j.text; }
+      else if (j.type === "vad.speech") { rtStopPlay(); callState("listening"); }
+      else if (j.type === "turn.done") { if (call.on) callState("listening"); }
+      else if (j.type === "rt.ready") { callState("listening"); }
+      else if (j.type === "rt.error") { rtFallback(j.message); }
+      else if (j.type === "rt.close") { if (call.on && !rt.intentional) rtFallback("实时连接断了"); }
+    };
+    ws.onerror = function () { if (call.on && !rt.gotAudio) rtFallback("实时通话没连上"); };
+    ws.onclose = function () { if (call.on && !rt.intentional && !rt.gotAudio) rtFallback("实时通话没连上"); };
+  }
+  function rtStartMic() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { rtFallback("浏览器不支持麦克风"); return; }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (st) {
+      if (!call.on) { st.getTracks().forEach(function (t) { t.stop(); }); return; }
+      rt.stream = st;
+      var AC = window.AudioContext || window.webkitAudioContext;
+      var ac = rt.ac || new AC(); rt.ac = ac;
+      if (ac.state === "suspended") ac.resume();
+      var srcNode = ac.createMediaStreamSource(st);
+      var proc = ac.createScriptProcessor(4096, 1, 1); rt.proc = proc;
+      var mute = ac.createGain(); mute.gain.value = 0;
+      proc.onaudioprocess = function (e) {
+        if (!rt.ws || rt.ws.readyState !== 1) return;
+        var input = e.inputBuffer.getChannelData(0);
+        var sr = ac.sampleRate, n = Math.floor(input.length * 16000 / sr);
+        var pcm = new Int16Array(n);
+        for (var i = 0; i < n; i++) { var s = input[Math.floor(i * sr / 16000)]; s = Math.max(-1, Math.min(1, s)); pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff; }
+        var u8 = new Uint8Array(pcm.buffer), bin = "";
+        for (var k = 0; k < u8.length; k++) bin += String.fromCharCode(u8[k]);
+        rt.ws.send(JSON.stringify({ type: "audio.append", audio: btoa(bin) }));
+      };
+      srcNode.connect(proc); proc.connect(mute); mute.connect(ac.destination);
+    }).catch(function () { rtFallback("允许麦克风权限后才能打电话"); });
+  }
+  function rtPlay(b64) {
+    if (!call.on) return;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    var ac = rt.ac || new AC(); rt.ac = ac;
+    if (ac.state === "suspended") ac.resume();
+    var bin = atob(b64), u8 = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    var pcm = new Int16Array(u8.buffer), f32 = new Float32Array(pcm.length);
+    for (var j = 0; j < pcm.length; j++) f32[j] = pcm[j] / 0x8000;
+    if (!f32.length) return;
+    var buf = ac.createBuffer(1, f32.length, 24000);
+    buf.copyToChannel(f32, 0);
+    var src = ac.createBufferSource(); src.buffer = buf;
+    rt.srcs.push(src);
+    var t = Math.max(ac.currentTime + 0.02, rt.playNext);
+    src.start(t); rt.playNext = t + buf.duration;
+    src.onended = function () { rt.srcs = rt.srcs.filter(function (s) { return s !== src; }); };
+    callState("speaking");
+  }
+  function rtStopPlay() {
+    rt.playNext = 0;
+    rt.srcs.forEach(function (s) { try { s.stop(); } catch (e) {} });
+    rt.srcs = [];
+  }
+  function rtFallback(msg) {
+    rtCleanup();
+    if (!call.on) return;
+    if (msg) toast(msg + "，切到普通通话");
+    legacyCallBegin();
+  }
+  function rtCleanup() {
+    rt.intentional = true;
+    if (rt.ws) { try { rt.ws.send(JSON.stringify({ type: "hangup" })); rt.ws.close(); } catch (e) {} rt.ws = null; }
+    if (rt.proc) { try { rt.proc.disconnect(); } catch (e) {} rt.proc = null; }
+    if (rt.stream) { rt.stream.getTracks().forEach(function (t) { t.stop(); }); rt.stream = null; }
+    rtStopPlay();
+    rt.playNext = 0; rt.gotAudio = false;
+  }
   $("btnCall").addEventListener("click", startCall);
   $("btnEndCall").addEventListener("click", endCall);
-  $("callAvatarWrap").addEventListener("click", function () { if (call.on && call.state === "speaking") { stopSpeak(); callListen(); } });
+  $("callAvatarWrap").addEventListener("click", function () { if (call.on && call.state === "speaking") { if (rt.ws) { rtStopPlay(); callState("listening"); } else { stopSpeak(); callListen(); } } });
 
   function openSheet(id) {
     closeSheets();
