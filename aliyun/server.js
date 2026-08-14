@@ -85,6 +85,56 @@ function serveStatic(res, entry) {
   return res.end(buf);
 }
 
+/* ---------- 生图双通道：安全场景走万相（订阅自带），亲密场景走可配置无审查线路，互为备份 ---------- */
+const IMG2_BASE = (process.env.IMG2_BASE || "").replace(/\/+$/, "");
+const IMG2_KEY = process.env.IMG2_KEY || "";
+const IMG2_MODEL = process.env.IMG2_MODEL || "";
+async function genWan(prompt) {
+  let r;
+  try {
+    r = await fetch(UPSTREAM.replace(/\/compatible-mode\/v1$/, "") + "/api/v1/services/aigc/multimodal-generation/generation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + MODEL_KEY },
+      body: JSON.stringify({ model: "wan2.7-image", input: { messages: [{ role: "user", content: [{ text: prompt }] }] }, parameters: { size: "768*768", n: 1 } }),
+    });
+  } catch (e) { return null; }
+  if (!r.ok) return null;
+  let imgUrl = "";
+  try { imgUrl = (JSON.parse(await r.text())).output.choices[0].message.content[0].image; } catch (e) { return null; }
+  if (!imgUrl) return null;
+  try {
+    const ir = await fetch(imgUrl.replace(/^http:\/\//, "https://"));
+    if (!ir.ok) return null;
+    return Buffer.from(await ir.arrayBuffer());
+  } catch (e) { return null; }
+}
+async function genImg2(prompt) {
+  if (!IMG2_BASE || !IMG2_KEY) return null;
+  let r;
+  try {
+    r = await fetch(IMG2_BASE + "/images/generations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + IMG2_KEY },
+      body: JSON.stringify({ model: IMG2_MODEL, prompt: prompt, size: "768x768", n: 1 }),
+    });
+  } catch (e) { return null; }
+  if (!r.ok) return null;
+  try {
+    const j = JSON.parse(await r.text());
+    const it = j.data && j.data[0];
+    if (it && it.b64_json) return Buffer.from(it.b64_json, "base64");
+    if (it && it.url) { const ir = await fetch(it.url.replace(/^http:\/\//, "https://")); if (ir.ok) return Buffer.from(await ir.arrayBuffer()); }
+  } catch (e) { /* 解析失败走备份 */ }
+  return null;
+}
+function sanitizePrompt(p) {
+  return String(p).replace(/(裸|赤裸|私处|下体|阴茎|阴道|乳头|乳晕|臀|穴|做爱|性交|插入|射|喘息|缠绵|云雨|高潮)/g, "").replace(/亲密[^，。；\n]*/g, "拥抱");
+}
+async function genImage(route, prompt) {
+  if (route === "nsfw") return (await genImg2(prompt)) || (await genWan(sanitizePrompt(prompt)));
+  return (await genWan(prompt)) || (await genImg2(prompt)) || (await genWan(sanitizePrompt(prompt)));
+}
+
 /* ---------- 路由 ---------- */
 const server = http.createServer(async (req, res) => {
   cors(res);
@@ -146,28 +196,14 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { success: true });
   }
 
-  /* --- AI 生成头像（万相 wan2.7-image，订阅自带） --- */
+  /* --- AI 生图（双通道：route=nsfw 走无审查线路，默认走万相；互为备份） --- */
   if (req.method === "POST" && url === "/genimg") {
     const prompt = String(body.prompt || "").trim().slice(0, 800);
     if (!prompt) return json(res, 400, { error: "prompt 不能为空" });
-    let r;
-    try {
-      r = await fetch(UPSTREAM.replace(/\/compatible-mode\/v1$/, "") + "/api/v1/services/aigc/multimodal-generation/generation", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + MODEL_KEY },
-        body: JSON.stringify({ model: "wan2.7-image", input: { messages: [{ role: "user", content: [{ text: prompt }] }] }, parameters: { size: "768*768", n: 1 } }),
-      });
-    } catch (e) { return json(res, 502, { error: "生图服务连接失败" }); }
-    if (!r.ok) { const t = await r.text().catch(() => ""); return json(res, 502, { error: "生图失败 " + r.status + " " + t.slice(0, 150) }); }
-    let imgUrl = "";
-    try { imgUrl = (JSON.parse(await r.text())).output.choices[0].message.content[0].image; } catch (e) { return json(res, 502, { error: "生图结果解析失败" }); }
-    if (!imgUrl) return json(res, 502, { error: "没有生成图片" });
-    let ir;
-    try { ir = await fetch(imgUrl.replace(/^http:\/\//, "https://")); } catch (e) { return json(res, 502, { error: "图片拉取失败" }); }
-    if (!ir.ok) return json(res, 502, { error: "图片拉取失败 " + ir.status });
-    const buf = Buffer.from(await ir.arrayBuffer());
+    const buf = await genImage(body.route === "nsfw" ? "nsfw" : "safe", prompt);
+    if (!buf) return json(res, 502, { error: "生图失败：两条线路都不可用或被拦截" });
     cors(res);
-    res.writeHead(200, { "Content-Type": "image/png", "Content-Length": buf.length });
+    res.writeHead(200, { "Content-Type": "image/jpeg", "Content-Length": buf.length });
     return res.end(buf);
   }
 

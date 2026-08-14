@@ -1257,9 +1257,12 @@
     var mm = /\[\[图:([^\]]{1,200})\]\]/.exec(m.content);
     if (!mm) return;
     var desc = mm[1];
+    var recent = "";
+    for (var k = messages.length - 1; k >= 0 && k >= messages.length - 3; k--) recent += (messages[k].content || "") + " ";
+    var intimate = /裸|赤裸|胸|床|脱|私处|下体|穴|阴茎|乳|臀|喘|吻|亲密|云雨|缠绵|想要你|睡/.test(desc + recent);
     var styleTxt = { anime: "日系动漫风格", d3: "皮克斯迪士尼3D渲染风格", real: "写实摄影风格" }[active.avStyle] || "日系动漫风格";
     var prompt = "角色发来的照片，自然真实的生活感。人物设定：" + (active.persona || "").slice(0, 200) + "。" + (active.gender ? "角色性别：" + (active.gender === "f" ? "女" : "男") + "。" : "") + "画面内容：" + desc + "。风格：" + styleTxt + "。";
-    fetch(API_BASE + "/genimg", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ prompt: prompt }) })
+    fetch(API_BASE + "/genimg", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ prompt: prompt, route: intimate ? "nsfw" : "safe" }) })
       .then(function (r) { if (!r.ok) throw 0; return r.blob(); })
       .then(function (b) {
         return new Promise(function (res, rej) {
