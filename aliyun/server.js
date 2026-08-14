@@ -127,11 +127,11 @@ const server = http.createServer(async (req, res) => {
       model: model,
       messages: body.messages || [],
       stream: !!body.stream,
-      temperature: 0.75,
+      temperature: 0.85,
       top_p: 0.9,
-      frequency_penalty: 0.5, // 抑制车轱辘话：已出现过的词再出现要扣分
-      presence_penalty: 0.3,  // 鼓励往前推进，别原地打转
-      max_tokens: 500, // 输出安全阀，防失控长回复烧 token
+      frequency_penalty: 0.7, // 抑制车轱辘话：已出现过的词再出现要扣分
+      presence_penalty: 0.6,  // 鼓励往前推进，别原地打转
+      max_tokens: 2000, // 放开长度：走心回复不被截断，仍留安全阀
     };
     let upstream;
     try {

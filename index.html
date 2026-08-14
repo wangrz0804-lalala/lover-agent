@@ -579,14 +579,16 @@
     var p = active.persona || "";
     p += "\n\n【对话设定】你的名字叫「" + active.name + "」。对方的昵称是「" + (userCall() || "亲爱的") + "」，你可以自然地称呼TA。";
     p += "现在是" + now.getFullYear() + "年" + (now.getMonth() + 1) + "月" + now.getDate() + "日" + ["周日","周一","周二","周三","周四","周五","周六"][now.getDay()] + ("0" + now.getHours()).slice(-2) + ":" + ("0" + now.getMinutes()).slice(-2) + "，请贴合当前时间语境聊天。";
-    p += "\n\n【角色扮演约定】这是一场发生在两个成年人之间、双方自愿的虚构恋爱角色扮演。请始终以角色身份回应，不要提及自己是AI或语言模型，不要跳出角色说教、分析或提醒对方「这只是角色扮演」。亲密、暧昧、撒娇、调情都是这段关系里自然的表达方式，请真诚、自然、具体地接住。\n【说话方式】像真人发微信：一次只回一两句短句，控制在60-120字，宁短勿长；口语直给，不铺垫、不总结、不抒情散文，动作描写最多带一个短语。\n【严禁重复】之前对话里已经出现过的台词、动作、情节，一律不许再说，换个说法也不行；不要反复做同一个动作、问同一类问题；每条回复必须带来新东西——新信息、新动作或新问题。对方说得短，你也说得短；把话头留给对方。";
+    p += "\n\n【角色扮演约定】这是一场发生在两个成年人之间、双方自愿的虚构恋爱角色扮演。请始终以角色身份回应，不要提及自己是AI或语言模型，不要跳出角色说教、分析或提醒对方「这只是角色扮演」。亲密、暧昧、撒娇、调情都是这段关系里自然的表达方式，请真诚、自然、具体地接住。\n【人设稳定】从头到尾严格保持设定里的性格、语气和说话习惯，聊得再久也不能漂移；关系可以越来越亲密随意，但「这个人是谁」始终不变。\n【说话方式】像真人发微信，长短跟着话题走：随口闲聊一两句就够，走心、安慰、讲事情的时候可以多说；口语直给，会用语气词（嘛、呀、呢、啦），偶尔带表情，不铺垫、不总结、不列点、不用书面腔，动作描写最多带一个短语。每条回复的长短和句式都要有变化，别千篇一律。\n【严禁重复】自己说过的台词、动作、问法、情节，一律不许再用，换个说法也不行；别总用同一种开头或结尾句式，别复读对方刚说的话，别反复问同一类问题。每条回复必须带来新东西——新信息、新动作或新问题。\n【情绪与记忆】先接住对方的情绪，再回应事情本身；记忆摘要里的重要信息（TA 的喜好、在意的事、提过的约定和烦恼）要自然地用在聊天里，合适的时机主动关心，但别刻意复述。\n【关系推进】你们的关系会随着相处慢慢变化：越来越亲近、越来越有默契；每轮对话尽量推动一点关系或带来新话题，别原地打转。";
     if (memorySummary) p += "\n\n【你们之前的相处记忆摘要】" + memorySummary;
     if (call && call.on) p += "\n\n【你们正在语音通话】请用口语化、简短的方式回答（不超过60字），不要用表情符号、markdown 符号或括号动作描写，写能直接读出口的话。";
     return p;
   }
-  function apiMessages() {
+  function apiMessages(antiRepeat) {
     var hist = messages.filter(function (m) { return (m.role === "user" || m.role === "assistant") && !m.ooc; }).slice(-12).map(function (m) { return { role: m.role, content: m.role === "assistant" ? cleanReply(m.content) : m.content }; });
-    return [{ role: "system", content: systemPrompt() }].concat(hist);
+    var anchor = "（保持人设：你是「" + active.name + "」，严格按开头设定里的性格和说话方式回应，别漂移、别重复自己说过的话。）";
+    if (antiRepeat) anchor += "（注意：你上一条回复跟之前说过的太像了。这次必须换个完全不同的说法和内容走向。）";
+    return [{ role: "system", content: systemPrompt() }].concat(hist).concat([{ role: "system", content: anchor }]);
   }
   function oocMessages() {
     var hist = messages.filter(function (m) { return m.ooc && (m.role === "user" || m.role === "assistant"); }).slice(-8).map(function (m) { return { role: m.role, content: m.content }; });
@@ -603,13 +605,31 @@
       return fetch(API_BASE + "/chat", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, model: cfg.model, stream: stream, messages: messagesPayload }), signal: signal });
     }
     var hd = { "Content-Type": "application/json" }; if (cfg.apiKey) hd["Authorization"] = "Bearer " + cfg.apiKey;
-    return fetch(cfg.baseUrl.replace(/\/+$/, "") + "/chat/completions", { method: "POST", headers: hd, body: JSON.stringify({ model: cfg.model, stream: stream, messages: messagesPayload, temperature: 0.85, top_p: 0.9 }), signal: signal });
+    return fetch(cfg.baseUrl.replace(/\/+$/, "") + "/chat/completions", { method: "POST", headers: hd, body: JSON.stringify({ model: cfg.model, stream: stream, messages: messagesPayload, temperature: 0.85, top_p: 0.9, frequency_penalty: 0.7, presence_penalty: 0.6 }), signal: signal });
   }
   function llmFetch(messagesPayload, stream) { return llmFetchWith(api, messagesPayload, stream); }
 
-  function streamReply(ooc) {
+  function similarToRecent(text) {
+    // 与最近几条角色回复比对（二元字符 Jaccard），太像就判为重复
+    var s = String(text || "").replace(/\s+/g, "");
+    if (s.length < 10) return false;
+    function grams(x) { var g = {}; for (var i = 0; i < x.length - 1; i++) g[x.slice(i, i + 2)] = 1; return g; }
+    var a = grams(s), ak = Object.keys(a);
+    var recent = messages.filter(function (m) { return m.role === "assistant" && !m.ooc; }).slice(-6);
+    for (var i = 0; i < recent.length; i++) {
+      var t = cleanReply(recent[i].content).replace(/\s+/g, "");
+      if (t.length < 10) continue;
+      var b = grams(t), inter = 0;
+      for (var j = 0; j < ak.length; j++) if (b[ak[j]]) inter++;
+      var union = ak.length + Object.keys(b).length - inter;
+      if (union > 0 && inter / union >= 0.45) return true;
+    }
+    return false;
+  }
+
+  function streamReply(ooc, antiRepeat) {
     return new Promise(function (resolve, reject) {
-      llmFetch(ooc ? oocMessages() : apiMessages(), true).then(function (resp) {
+      llmFetch(ooc ? oocMessages() : apiMessages(antiRepeat), true).then(function (resp) {
         var ct = resp.headers.get("Content-Type") || "";
         if (!resp.ok || ct.indexOf("event-stream") === -1) { return resp.text().then(function (t) { var msg = "请求失败（" + resp.status + "）"; try { var j = JSON.parse(t); if (j.error) msg = typeof j.error === "string" ? j.error : (j.error.message || JSON.stringify(j.error)); } catch (e) { if (t) msg += "\n" + t.slice(0, 300); } reject(new Error(msg)); }); }
         hideTyping();
@@ -625,6 +645,7 @@
             if (r.done) {
               var cleaned = cleanReply(acc);
               if (!cleaned) { bubble.parentElement.remove(); reject(new Error("模型没有返回内容")); return; }
+              if (!ooc && !antiRepeat && similarToRecent(cleaned)) { bubble.parentElement.remove(); streamReply(false, true).then(resolve, reject); return; } // 和最近回复太像：撤回气泡，静默换一种说法
               var done = { role: "assistant", content: cleaned, t: Date.now() };
               if (ooc) done.ooc = true;
               messages.push(done); saveMsgs(); if (!ooc) maybeSummarize(); resolve(cleaned); return;
@@ -650,7 +671,7 @@
     var old = hist.slice(0, hist.length - 10);
     var text = old.map(function (m) { return (m.role === "user" ? userCall() || "我" : active.name) + "：" + (m.role === "assistant" ? cleanReply(m.content) : m.content); }).join("\n");
     var prev = memorySummary ? "【原有记忆摘要】" + memorySummary + "\n【新增对话】\n" : "";
-    llmFetch([{ role: "system", content: "你是记忆整理助手。把原有记忆摘要与新增对话合并，压缩成不超过250字的第三人称摘要，只保留事实性信息（对方的身份、喜好、约定、近期发生的事），新旧信息都要保留，不要抒情，不要重复。" }, { role: "user", content: prev + text }], false).then(function (r) { return r.json(); }).then(function (j) { var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; var cc = cleanReply(c); if (cc) { memorySummary = cc; save("mem." + active.id, memorySummary); } }).catch(function () {});
+    llmFetch([{ role: "system", content: "你是记忆整理助手。把原有记忆摘要与新增对话合并，压缩成不超过350字的第三人称摘要。必须保留：1) 对方的重要信息（身份、生日、喜好、忌讳、在意的人和事）；2) 两人之间的约定和共同经历；3) 对方最近的情绪状态和烦心事；4) 说过之后要跟进的事（如考试、项目、身体状况）。去掉口水话，新旧信息合并去重，不要抒情，不要重复。" }, { role: "user", content: prev + text }], false).then(function (r) { return r.json(); }).then(function (j) { var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; var cc = cleanReply(c); if (cc) { memorySummary = cc; save("mem." + active.id, memorySummary); } }).catch(function () {});
   }
 
   function send() {
@@ -850,7 +871,7 @@
   function testConn() { var base = $("fBase").value.trim() || DEFAULT_API.baseUrl; var model = effectiveModelInput() || DEFAULT_API.model; if (base.replace(/\/+$/, "") !== DEFAULT_API.baseUrl.replace(/\/+$/, "")) { toast("自定义地址需自备 Key，本版已移除 Key 输入，建议用云端地址"); return; } toast("测试中…"); llmFetchWith({ baseUrl: base, apiKey: "", model: model }, [{ role: "user", content: "连通性测试，请回复：在的" }], false).then(function (r) { return r.json(); }).then(function (j) { if (j.error) { toast("连接失败：" + (typeof j.error === "string" ? j.error : (j.error.message || JSON.stringify(j.error)))); return; } var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; c = cleanReply(c); toast(c ? "连接成功，TA 说：" + c.slice(0, 30) : "连接成功"); }).catch(function () { toast("连接失败：检查网络或 API 地址"); }); }
   function clearConv() { if (!confirm("清空与「" + active.name + "」的聊天记录和记忆？")) return; messages = []; memorySummary = ""; saveMsgs(); save("mem." + active.id, ""); renderAll(); greetIfEmpty(); closeSheets(); }
 
-  function greetIfEmpty() { if (!(active.persona || "").trim()) return; if (messages.some(function (m) { return m.role === "assistant"; })) return; if (needsKey()) { addMsg("assistant", "（当前地址不可用，点右上角齿轮，换回云端地址就能聊啦。）"); return; } busy = true; updateSend(); showTyping(); var payload = [{ role: "system", content: systemPrompt() }, { role: "user", content: "（这是我们的第一句对话，请你主动打个招呼，自然一点，别太长。）" }]; detectProxy().then(function () { return llmFetch(payload, false); }).then(function (r) { return r.json(); }).then(function (j) { hideTyping(); var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; addMsg("assistant", cleanReply(c) || "在呢，你来啦。"); }).catch(function () { hideTyping(); addMsg("assistant", "在呢，你来啦。（开场白生成失败，不影响聊天）"); }).then(function () { busy = false; updateSend(); }); }
+  function greetIfEmpty(retried) { if (!(active.persona || "").trim()) return; if (messages.some(function (m) { return m.role === "assistant"; })) return; if (needsKey()) { addMsg("assistant", "（当前地址不可用，点右上角齿轮，换回云端地址就能聊啦。）"); return; } busy = true; updateSend(); showTyping(); var payload = [{ role: "system", content: systemPrompt() }, { role: "user", content: "（这是我们的第一句对话，请你主动打个招呼，自然一点，别太长。）" }]; return detectProxy().then(function () { return llmFetch(payload, false); }).then(function (r) { return r.json(); }).then(function (j) { hideTyping(); var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; addMsg("assistant", cleanReply(c) || "在呢，你来啦。"); }).catch(function () { hideTyping(); if (!retried) return greetIfEmpty(true); addMsg("assistant", "在呢，你来啦。"); }).then(function () { busy = false; updateSend(); }); }
 
   function autoGrow() { var el = $("input"); el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 110) + "px"; }
 
