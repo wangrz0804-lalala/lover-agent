@@ -97,6 +97,11 @@
     display: flex; gap: 9px; align-items: flex-end;
     background: rgba(250,246,241,.95); border-top: 1px solid var(--line);
   }
+  #sugg { display: flex; gap: 6px; padding: 7px 12px 0; overflow-x: auto; scrollbar-width: none; background: rgba(250,246,241,.95); }
+  #sugg:empty { display: none; }
+  #sugg::-webkit-scrollbar { display: none; }
+  #sugg .chip { flex: none; max-width: 72%; padding: 7px 12px; border-radius: 15px; border: 1px solid var(--line); background: #fff; font-size: 13px; color: var(--ink-2); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: inherit; }
+  #sugg .chip:active { opacity: .65; }
   #input {
     flex: 1; border: 1px solid var(--line); background: #fff; border-radius: 22px;
     padding: 10px 15px; font-size: 15px; outline: none; resize: none;
@@ -266,6 +271,8 @@
   </header>
 
   <div id="chat"></div>
+
+  <div id="sugg"></div>
 
   <footer>
     <button id="oocToggle" aria-label="跟AI说话" title="切换：跟角色说 / 跟AI说">AI</button>
@@ -713,8 +720,9 @@
     var ooc = chatMode === "ai";
     if (!ooc && !(active.persona || "").trim()) { toast("先给 TA 起个名字、写上人设哦"); openSheet("sheetProfiles"); return; }
     $("input").value = ""; autoGrow(); busy = true; updateSend();
+    $("sugg").innerHTML = "";
     addMsg("user", v, ooc); showTyping(ooc);
-    detectProxy().then(function () { return streamReply(ooc); }).catch(function (e) { if (e && (e.partial || /地区有访问限制|没有这个模型/.test(e.message || ""))) throw e; toast("网络抖了一下，正在重试…"); return streamReply(ooc); }).catch(function (e) { hideTyping(); $("chat").insertAdjacentHTML("beforeend", '<div class="row lover' + (ooc ? " ooc" : "") + '"><div class="mini-avatar">' + (ooc ? esc("AI") : avatarHtml(active, initial())) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>"); scrollBottom(true); }).then(function () { busy = false; updateSend(); });
+    detectProxy().then(function () { return streamReply(ooc); }).catch(function (e) { if (e && (e.partial || /地区有访问限制|没有这个模型/.test(e.message || ""))) throw e; toast("网络抖了一下，正在重试…"); return streamReply(ooc); }).catch(function (e) { hideTyping(); $("chat").insertAdjacentHTML("beforeend", '<div class="row lover' + (ooc ? " ooc" : "") + '"><div class="mini-avatar">' + (ooc ? esc("AI") : avatarHtml(active, initial())) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>"); scrollBottom(true); }).then(function () { busy = false; updateSend(); genSuggestions(); });
   }
   function updateSend() { $("send").disabled = busy || !$("input").value.trim(); }
   function needsKey() { if (proxyMode) return false; if (api.apiKey) return false; return !/\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)([:/]|$)/.test(api.baseUrl || ""); } // 云端/本地地址免 key；其它自定义地址才需要
@@ -811,6 +819,7 @@
       if (!proxyMode && !window.speechSynthesis) { toast("这个浏览器不支持语音播放，打不了电话"); return; }
       if (!proxyMode && !SR) { toast("语音输入需要 Chrome 或 Safari 哦"); return; }
       call.on = true; call.t0 = Date.now();
+      $("sugg").innerHTML = "";
       $("callName").textContent = active.name || "TA"; $("callAvatar").innerHTML = avatarHtml(active, initial()); $("callLine").textContent = "";
       $("callOverlay").classList.add("show"); callTick(); call.timer = setInterval(callTick, 1000);
       if (proxyMode) rtStart(ttsGender()); else legacyCallBegin(); // 云端走端到端实时语音，失败自动降级
@@ -985,7 +994,7 @@
     $("profList").innerHTML = html;
   }
   function fillEditForm() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; $("eName").value = p.name; $("eCallMe").value = p.callMe || ""; $("ePersona").value = p.persona; $("eVoice").value = p.voice || ""; paintAvPrev(); }
-  async function switchProfile(id) { if (busy) { toast("等这条回复完再切换哦"); return; } if (id === active.id) { closeSheets(); return; } var p = null; profiles.forEach(function (x) { if (x.id === id) p = x; }); if (!p) return; active = p; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); closeSheets(); greetIfEmpty(); }
+  async function switchProfile(id) { if (busy) { toast("等这条回复完再切换哦"); return; } if (id === active.id) { closeSheets(); return; } var p = null; profiles.forEach(function (x) { if (x.id === id) p = x; }); if (!p) return; active = p; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); closeSheets(); greetIfEmpty(); $("sugg").innerHTML = ""; genSuggestions(); }
   function saveProfile() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; p.name = $("eName").value.trim() || "未命名"; p.callMe = $("eCallMe").value.trim(); p.persona = $("ePersona").value.trim(); p.voice = $("eVoice").value || ""; save("profiles", profiles); if (p.id === active.id) { paintHeader(); renderAll(); if ((p.persona || "").trim()) greetIfEmpty(); } renderProfiles(); toast("人设已保存"); }
   async function addProfile() { var p = { id: "p" + Date.now(), name: "", persona: "" }; profiles.push(p); save("profiles", profiles); editingId = p.id; await switchProfile(p.id); openSheet("sheetProfiles"); editingId = p.id; fillEditForm(); }
   async function delProfile() { if (profiles.length <= 1) { toast("至少保留一个人设"); return; } var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; if (!confirm("删除人设「" + p.name + "」？和TA的聊天记录也会一起删掉。")) return; profiles = profiles.filter(function (x) { return x.id !== p.id; }); save("profiles", profiles); try { localStorage.removeItem(storeKey("msg." + p.id)); localStorage.removeItem(storeKey("mem." + p.id)); } catch (e) {} try { fetch(API_BASE + "/avatar", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ key: storeKey("avatar." + p.id), action: "del" }) }); } catch (e) {} if (editingId === p.id) editingId = profiles[0].id; if (active.id === p.id) { active = profiles[0]; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); } renderProfiles(); fillEditForm(); toast("已删除"); }
@@ -1164,6 +1173,31 @@
       .then(function (r) { if (!r.ok) throw new Error("保存失败 " + r.status); return r.json(); })
       .then(function () { p.avatar = String(Date.now()); save("profiles", profiles); paintAvPrev(); if (p.id === active.id) { paintHeader(); renderAll(); } });
   }
+
+  /* ----- AI 推荐回复：角色说完话，浮出 3 条可点选的短句 ----- */
+  function genSuggestions() {
+    var el = $("sugg"); if (!el) return;
+    el.innerHTML = "";
+    if (chatMode === "ai" || call.on || !(active.persona || "").trim()) return;
+    var last = null;
+    for (var i = messages.length - 1; i >= 0; i--) { if (messages[i].role === "assistant" && !messages[i].ooc) { last = messages[i]; break; } }
+    if (!last) return;
+    var sys = "你是回复建议助手。用户正和角色「" + active.name + "」聊天，角色刚说了下面这句话。请写 3 条用户可能回的话，方向各不相同（撒娇、关心、提问、调侃、接话等），口语、每条 12 字内。只输出三行，每行一条，不要序号不要解释。";
+    var cfg = proxyMode ? { baseUrl: api.baseUrl, apiKey: api.apiKey, model: "qwen3.6-flash" } : api;
+    llmFetchWith(cfg, [{ role: "system", content: sys }, { role: "user", content: cleanReply(last.content).slice(0, 300) }], false)
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+        var lines = cleanReply(c).split(/\n+/).map(function (s) { return s.replace(/^[\d\.\-\*、\)）\s]+/, "").trim(); }).filter(function (s) { return s && s.length <= 20; }).slice(0, 3);
+        if (!lines.length || chatMode === "ai" || call.on) return;
+        el.innerHTML = lines.map(function (s) { return '<button class="chip" data-sugg="' + esc(s) + '">' + esc(s) + "</button>"; }).join("");
+      }).catch(function () {});
+  }
+  $("sugg").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-sugg]"); if (!b || busy) return;
+    $("input").value = b.getAttribute("data-sugg");
+    send();
+  });
   $("send").addEventListener("click", send);
   $("input").addEventListener("input", function () { autoGrow(); updateSend(); });
   $("input").addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
@@ -1206,6 +1240,8 @@
     var on = chatMode === "ai";
     $("oocToggle").classList.toggle("on", on);
     $("input").placeholder = on ? "跟 AI 助手说（不影响剧情）…" : "说点什么…";
+    $("sugg").innerHTML = "";
+    if (!on) genSuggestions();
   });
   $("btnLogout").addEventListener("click", logout);
   $("btnLogin").addEventListener("click", doLogin);
@@ -1243,6 +1279,7 @@
     renderAll();
     detectProxy().then(function () {
       greetIfEmpty();
+      genSuggestions();
       if (needsKey()) setTimeout(function () { openSheet("sheetSettings"); }, 400);
     });
   }
