@@ -26,20 +26,65 @@ function json(res, code, obj) {
   res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(obj));
 }
-function readBody(req) {
+function readBody(req, max) {
+  const cap = max || 3 * 1024 * 1024; // 请求体上限，防无限缓冲 OOM
   return new Promise((resolve, reject) => {
-    let chunks = [];
-    req.on("data", (c) => chunks.push(c));
+    let chunks = [], size = 0, done = false;
+    req.on("data", (c) => {
+      size += c.length;
+      if (size > cap) { done = true; reject(new Error("too large")); req.destroy(); return; }
+      chunks.push(c);
+    });
     req.on("end", () => {
+      if (done) return;
       try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}")); }
       catch (e) { reject(new Error("bad json")); }
     });
-    req.on("error", reject);
+    req.on("error", (e) => { if (!done) reject(e); });
   });
 }
 function tokenOk(req, body) {
   return req.headers["x-app-token"] === APP_TOKEN || (body && body.token === APP_TOKEN);
 }
+
+/* ---------- 限流 / 会话令牌 / 密码哈希 ---------- */
+const RATE_LIMITS = { "/login": 10, "/genimg": 2, "/tts": 10, "/chat": 20, "/sync": 60, "/avatar": 10, "/rt": 10 }; // 每 IP 每分钟
+const rateBuckets = new Map();
+function rateOk(route, ip) {
+  const lim = RATE_LIMITS[route];
+  if (!lim) return true;
+  const now = Date.now();
+  const k = ip + route;
+  let b = rateBuckets.get(k);
+  if (!b) { b = []; rateBuckets.set(k, b); }
+  while (b.length && b[0] < now - 60000) b.shift();
+  if (b.length >= lim) return false;
+  b.push(now);
+  if (rateBuckets.size > 20000) rateBuckets.clear(); // demo 量级内存安全阀
+  return true;
+}
+const SESSION_SECRET = process.env.SESSION_SECRET || "lover-dev-secret-change-me";
+function signSession(slug) {
+  const payload = Buffer.from(JSON.stringify({ slug: slug, exp: Date.now() + 30 * 864e5 })).toString("base64url");
+  return payload + "." + crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
+}
+function sessionSlug(req, body) {
+  const h = req.headers["authorization"];
+  let tok = (h && h.indexOf("Bearer ") === 0 ? h.slice(7) : "") || (body && body.session) || "";
+  if (!tok) { try { tok = new URL(req.url || "/", "http://x").searchParams.get("session") || ""; } catch (e) {} }
+  if (!tok) return null;
+  const i = tok.lastIndexOf(".");
+  if (i < 0) return null;
+  const payload = tok.slice(0, i), sig = tok.slice(i + 1);
+  const expect = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
+  if (sig !== expect) return null;
+  try {
+    const o = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (!o || o.exp < Date.now()) return null;
+    return /^[0-9a-f]{16}$/.test(o.slug) ? o.slug : null;
+  } catch (e) { return null; }
+}
+function scryptHash(pwd, salt) { return crypto.scryptSync(String(pwd), salt, 32).toString("hex"); }
 
 /* ---------- OSS V1 签名 ---------- */
 function ossRequest(method, objectKey, bodyBuf, contentTypeOverride) {
@@ -81,6 +126,7 @@ function serveStatic(res, entry) {
   catch (e) { return json(res, 404, { error: "not found" }); }
   cors(res);
   res.setHeader("Content-Disposition", "inline");
+  if (entry.file === "index.html") res.setHeader("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: https:; media-src 'self' blob: https:; connect-src https: wss: http://127.0.0.1:* http://localhost:*; script-src 'self' 'unsafe-inline'");
   res.writeHead(200, { "Content-Type": entry.type, "Cache-Control": entry.file === "index.html" ? "no-store" : "no-cache" });
   return res.end(buf);
 }
@@ -138,6 +184,11 @@ async function genImage(route, prompt, bare) {
 /* ---------- 路由 ---------- */
 const server = http.createServer(async (req, res) => {
   cors(res);
+  const t0 = Date.now();
+  const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
+  res.on("finish", () => {
+    console.log(JSON.stringify({ t: new Date().toISOString(), ip: ip, m: req.method, u: (req.url || "/").split("?")[0], s: res.statusCode, ms: Date.now() - t0 }));
+  });
   if (req.method === "OPTIONS") { res.writeHead(200); return res.end(); }
 
   const url = (req.url || "/").split("?")[0];
@@ -158,9 +209,11 @@ const server = http.createServer(async (req, res) => {
     }
     if (url === "/avatar") {
       let q; try { q = new URL(req.url, "http://x").searchParams; } catch (e) { return json(res, 400, { error: "bad url" }); }
-      if (q.get("token") !== APP_TOKEN) return json(res, 401, { error: "token 校验失败" });
+      const sess = sessionSlug(req, null);
+      if (!sess) return json(res, 401, { error: "登录已失效，请重新登录" });
       const key = safeKey(q.get("key"));
-      if (!key || !/^lover\.[0-9a-f]{16}\.(avatar|pic)\./.test(key)) return json(res, 400, { error: "非法 key" });
+      if (!key || !/^lover\.([0-9a-f]{16})\.(avatar|pic)\./.test(key)) return json(res, 400, { error: "非法 key" });
+      if (key.split(".")[1] !== sess) return json(res, 403, { error: "无权访问该账号数据" });
       let r;
       try { r = await ossRequest("GET", "sync/" + key + ".jpg"); } catch (e) { return json(res, 502, { error: "头像服务连接失败" }); }
       if (!r.ok) return json(res, 404, { error: "头像不存在" });
@@ -175,14 +228,47 @@ const server = http.createServer(async (req, res) => {
   }
 
   let body;
-  try { body = await readBody(req); } catch (e) { return json(res, 400, { error: "请求体不是合法 JSON" }); }
+  try { body = await readBody(req); } catch (e) { return json(res, 400, { error: "请求体不是合法 JSON 或超出大小限制" }); }
 
-  if (!tokenOk(req, body)) return json(res, 401, { error: "token 校验失败" });
+  if (!rateOk(url, ip)) return json(res, 429, { error: "请求太频繁，歇一会儿再试" });
+
+  /* --- 登录 / 注册（服务端 scrypt 校验，签发会话令牌） --- */
+  if (req.method === "POST" && url === "/login") {
+    const name = String(body.name || "").trim().slice(0, 20);
+    const pwd = String(body.pwd || "");
+    if (!name || pwd.length < 4) return json(res, 400, { error: "账号或密码格式不对（密码至少 4 位）" });
+    const slug = crypto.createHash("sha256").update(name.toLowerCase() + "|" + pwd).digest("hex").slice(0, 16);
+    let auth = null;
+    try { const r = await ossRequest("GET", "sync/lover.auth." + slug + ".json"); if (r.ok) auth = await r.json().catch(() => null); } catch (e) { return json(res, 502, { error: "登录服务连接失败" }); }
+    if (auth && auth.hash) {
+      if (scryptHash(pwd, auth.salt) !== auth.hash) return json(res, 401, { error: "这个用户名的密码不对，再试试" });
+    } else {
+      const nameKey = "sync/lover.name." + crypto.createHash("sha256").update(name.toLowerCase()).digest("hex").slice(0, 16) + ".json";
+      let owner = null;
+      try { const r = await ossRequest("GET", nameKey); if (r.ok) owner = await r.json().catch(() => null); } catch (e) { owner = null; }
+      if (owner && owner.slug && owner.slug !== slug) return json(res, 401, { error: "这个用户名已被注册，密码不对" });
+      const salt = crypto.randomBytes(8).toString("hex");
+      const rec = { salt: salt, hash: scryptHash(pwd, salt), name: name, created: Date.now() };
+      try {
+        await ossRequest("PUT", "sync/lover.auth." + slug + ".json", Buffer.from(JSON.stringify(rec)));
+        if (!owner) await ossRequest("PUT", nameKey, Buffer.from(JSON.stringify({ slug: slug })));
+      } catch (e) { return json(res, 502, { error: "登录服务连接失败" }); }
+    }
+    return json(res, 200, { token: signSession(slug), acct: slug, name: name });
+  }
+
+  const sess = sessionSlug(req, body);
+  if (url === "/sync" || url === "/avatar") {
+    if (!sess) return json(res, 401, { error: "登录已失效，请重新登录" });
+  } else if (!tokenOk(req, body)) {
+    return json(res, 401, { error: "token 校验失败" });
+  }
 
   /* --- 头像上传（base64 -> OSS） --- */
   if (req.method === "POST" && url === "/avatar") {
     const key = safeKey(body.key);
-    if (!key || !/^lover\.[0-9a-f]{16}\.(avatar|pic)\./.test(key)) return json(res, 400, { error: "非法 key" });
+    if (!key || !/^lover\.([0-9a-f]{16})\.(avatar|pic)\./.test(key)) return json(res, 400, { error: "非法 key" });
+    if (key.split(".")[1] !== sess) return json(res, 403, { error: "无权访问该账号数据" });
     if (body.action === "del") {
       try { await ossRequest("DELETE", "sync/" + key + ".jpg"); } catch (e) { return json(res, 502, { error: "头像服务连接失败" }); }
       return json(res, 200, { success: true });
@@ -329,6 +415,8 @@ const server = http.createServer(async (req, res) => {
     const action = body.action;
     const key = safeKey(body.key);
     if (!key) return json(res, 400, { error: "缺少 key" });
+    const km = /^lover\.([0-9a-f]{16})\./.exec(key);
+    if (km && km[1] !== sess) return json(res, 403, { error: "无权访问该账号数据" });
     if (isLegacyFlatKey(key)) {
       if (action === "get") return json(res, 200, null); // 旧扁平数据一律视为无，杜绝新账号继承
       if (action === "set" || action === "del") return json(res, 403, { error: "旧版扁平 key 已冻结" });
@@ -382,24 +470,41 @@ function wsFrame(opcode, buf, mask) {
   for (let i = 0; i < len; i++) masked[i] = buf[i] ^ mk[i % 4];
   return Buffer.concat([head, mk, masked]);
 }
-function wsParser(onFrame) {
-  let buf = Buffer.alloc(0);
+function wsParser(onFrame, maxMsg) {
+  const cap = maxMsg || 1024 * 1024; // 单条消息上限，防内存放大
+  let buf = Buffer.alloc(0), frag = null, fragOp = 0;
   return function (chunk) {
     buf = Buffer.concat([buf, chunk]);
     for (;;) {
       if (buf.length < 2) return;
+      const fin = (buf[0] & 0x80) !== 0;
       const opcode = buf[0] & 0x0f;
       const masked = (buf[1] & 0x80) !== 0;
       let len = buf[1] & 0x7f, off = 2;
       if (len === 126) { if (buf.length < 4) return; len = buf.readUInt16BE(2); off = 4; }
       else if (len === 127) { if (buf.length < 10) return; len = Number(buf.readBigUInt64BE(2)); off = 10; }
+      if (len > cap) { onFrame(0x8, Buffer.from("too big")); return; }
       let mk = null;
       if (masked) { if (buf.length < off + 4) return; mk = buf.slice(off, off + 4); off += 4; }
       if (buf.length < off + len) return;
       let payload = buf.slice(off, off + len);
       if (mk) { const u = Buffer.alloc(len); for (let i = 0; i < len; i++) u[i] = payload[i] ^ mk[i % 4]; payload = u; }
       buf = buf.slice(off + len);
-      onFrame(opcode, payload);
+      if (opcode === 0x9) { onFrame(0x9, payload); continue; } // ping：调用方回 pong
+      if (opcode === 0xA) continue; // pong 忽略
+      if (opcode === 0x0) { // continuation 分片拼接
+        if (frag === null) continue;
+        frag = Buffer.concat([frag, payload]);
+        if (frag.length > cap) { onFrame(0x8, Buffer.from("too big")); return; }
+        if (fin) { onFrame(fragOp, frag); frag = null; }
+        continue;
+      }
+      if (opcode === 0x1 || opcode === 0x2) {
+        if (fin) onFrame(opcode, payload);
+        else { frag = payload; fragOp = opcode; }
+        continue;
+      }
+      onFrame(opcode, payload); // close 等控制帧
     }
   };
 }
@@ -412,6 +517,7 @@ function rtConnect(handlers) {
       sock.write("GET /api-ws/v1/realtime?model=qwen-audio-3.0-realtime-plus HTTP/1.1\r\nHost: " + RT_UP_HOST + "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: " + key + "\r\nSec-WebSocket-Version: 13\r\nAuthorization: Bearer " + MODEL_KEY + "\r\n\r\n");
     });
     const feed = wsParser((op, payload) => {
+      if (op === 0x9) { try { sock.write(wsFrame(0xA, payload, true)); } catch (e) {} return; }
       if (op === 0x1 && handlers.onText) handlers.onText(payload.toString());
       else if (op === 0x8 && handlers.onClose) handlers.onClose();
     });
@@ -472,6 +578,7 @@ server.on("upgrade", (req, socket) => {
     while (pending.length) h.send(pending.shift());
   }).catch((e) => { sendClient({ type: "rt.error", message: String((e && e.message) || e) }); try { socket.end(); } catch (e2) {} });
   const feed = wsParser((op, payload) => {
+    if (op === 0x9) { try { socket.write(wsFrame(0xA, payload, false)); } catch (e) {} return; }
     if (op === 0x8) { closed = true; if (up) up.close(); try { socket.end(); } catch (e) {} return; }
     if (op !== 0x1) return;
     let j; try { j = JSON.parse(payload.toString()); } catch (e) { return; }

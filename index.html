@@ -457,7 +457,7 @@
     try {
       await fetch(API_BASE + '/sync', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-App-Token': APP_TOKEN },
+        headers: { 'Content-Type': 'application/json', 'X-App-Token': APP_TOKEN, 'Authorization': 'Bearer ' + SESS_TOKEN },
         body: JSON.stringify({ action: 'set', key: rawKey, data: data })
       });
     } catch (e) {}
@@ -466,13 +466,27 @@
     try {
       var res = await fetch(API_BASE + '/sync', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-App-Token': APP_TOKEN },
+        headers: { 'Content-Type': 'application/json', 'X-App-Token': APP_TOKEN, 'Authorization': 'Bearer ' + SESS_TOKEN },
         body: JSON.stringify({ action: 'get', key: rawKey })
       });
       return await res.json();
     } catch (e) { return null; }
   }
   async function save(k, v) {
+    if (/^msg\./.test(k) && Array.isArray(v)) {
+      // 多端同时写时做并集合并，避免整包互覆盖丢消息
+      try {
+        var cur = await cloudGet(storeKey(k));
+        if (Array.isArray(cur)) {
+          var seen = {}, merged = [];
+          var keyOf = function (m) { return (m.t || 0) + "|" + (m.role || "") + "|" + (m.content || "").slice(0, 40); };
+          v.forEach(function (m) { var kk = keyOf(m); if (!seen[kk]) { seen[kk] = 1; merged.push(m); } });
+          var added = [];
+          cur.forEach(function (m) { var kk = keyOf(m); if (!seen[kk]) { seen[kk] = 1; added.push(m); } });
+          if (added.length) v = merged.concat(added).sort(function (a, b) { return (a.t || 0) - (b.t || 0); });
+        }
+      } catch (e) {}
+    }
     localStorage.setItem(storeKey(k), JSON.stringify(v));
     await cloudSet(storeKey(k), v);
   }
@@ -498,17 +512,21 @@
     if (!name) { toast("先填个用户名吧"); return; }
     if (!pwd || pwd.length < 4) { toast("密码至少 4 位"); return; }
     $("btnLogin").disabled = true;
-    var acct;
-    try { acct = await sha256Short(name.toLowerCase() + "|" + pwd); }
-    catch (e) { toast("当前浏览器不支持安全登录，换 Chrome 或 Safari 试试"); $("btnLogin").disabled = false; return; }
+    var r, j;
+    try {
+      r = await fetch(API_BASE + "/login", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ name: name, pwd: pwd }) });
+      j = await r.json();
+    } catch (e) { toast("连不上登录服务，检查网络"); $("btnLogin").disabled = false; return; }
+    if (!r.ok || !j || !j.token) { toast((j && j.error) || "登录失败"); $("btnLogin").disabled = false; return; }
+    var acct = j.acct;
     var users = []; try { users = JSON.parse(localStorage.getItem("lover.users") || "[]"); } catch (e) {}
     var found = null;
     users.forEach(function (u) { if (u.name.toLowerCase() === name.toLowerCase()) found = u; });
-    if (found && found.acct !== acct) { toast("这个用户名的密码不对，再试试"); $("btnLogin").disabled = false; return; }
     if (!found) { users.push({ name: name, acct: acct }); try { localStorage.setItem("lover.users", JSON.stringify(users)); } catch (e) {} }
     ACCT = acct;
+    SESS_TOKEN = j.token;
     var displayName = found ? found.name : name;
-    try { localStorage.setItem("lover.session", JSON.stringify({ acct: acct, name: displayName })); } catch (e) {}
+    try { localStorage.setItem("lover.session", JSON.stringify({ acct: acct, name: displayName, token: j.token })); } catch (e) {}
     $("acctName").textContent = displayName;
     $("loginWrap").style.display = "none";
     if (!found) await migrateLegacy(); // 本设备第一次建账号：把旧数据收进这个账号
@@ -554,6 +572,7 @@
   var editingId = null;       
   var messages = [];
   var memorySummary = "";
+  var SESS_TOKEN = "";
   var busy = false;
   var controller = null;
 
@@ -574,14 +593,14 @@
   function initial() { return (active.name || "TA").trim().charAt(0); }
   function avatarUrl(p) {
     if (!p || !p.avatar || !proxyMode) return "";
-    return API_BASE + "/avatar?key=" + encodeURIComponent(storeKey("avatar." + p.id)) + "&v=" + encodeURIComponent(String(p.avatar)) + "&token=" + encodeURIComponent(APP_TOKEN);
+    return API_BASE + "/avatar?key=" + encodeURIComponent(storeKey("avatar." + p.id)) + "&v=" + encodeURIComponent(String(p.avatar)) + "&session=" + encodeURIComponent(SESS_TOKEN);
   }
   function avatarHtml(p, fallbackChar) {
     var u = avatarUrl(p);
     return u ? '<img src="' + u + '" alt="">' : esc(fallbackChar);
   }
   function picUrl(key) {
-    return API_BASE + "/avatar?key=" + encodeURIComponent(key) + "&token=" + encodeURIComponent(APP_TOKEN);
+    return API_BASE + "/avatar?key=" + encodeURIComponent(key) + "&session=" + encodeURIComponent(SESS_TOKEN);
   }
   function recentPicCount() {
     var n = 0;
@@ -725,9 +744,13 @@
         var stamps = messages.filter(function (m) { return m.role === "stamp"; });
         if (!stamps.length || Date.now() - stamps[stamps.length - 1].t > 10 * 60 * 1000) { messages.push({ role: "stamp", t: Date.now() }); }
         var reader = resp.body.getReader(); var decoder = new TextDecoder("utf-8"); var buf = "";
+        var idleTimer = null;
+        function kick() { if (idleTimer) clearTimeout(idleTimer); idleTimer = setTimeout(function () { try { reader.cancel("idle"); } catch (e) {} }, 60000); } // 流式空闲超时：上游卡住 60s 就截断保留已收内容
+        kick();
         function pump() {
           reader.read().then(function (r) {
             if (r.done) {
+              if (idleTimer) clearTimeout(idleTimer);
               var cleaned = cleanReply(acc);
               if (!cleaned) { bubble.parentElement.remove(); reject(new Error("模型没有返回内容")); return; }
               if (!ooc && !antiRepeat && similarToRecent(cleaned)) { bubble.parentElement.remove(); streamReply(false, true).then(resolve, reject); return; } // 和最近回复太像：撤回气泡，静默换一种说法
@@ -741,10 +764,19 @@
             lines.forEach(function (line) {
               line = line.trim(); if (line.indexOf("data:") !== 0) return;
               var data = line.slice(5).trim(); if (data === "[DONE]") return;
-              try { var j = JSON.parse(data); var delta = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content; if (delta) { acc += delta; bubble.innerHTML = bubbleHtml(cleanReply(acc)); scrollBottom(true); } } catch (e) {}
+              try { var j = JSON.parse(data); var delta = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content; if (delta) { acc += delta; if (acc.indexOf("[[") >= 0) bubble.innerHTML = bubbleHtml(cleanReply(acc)); else bubble.textContent = cleanReply(acc); kick(); scrollBottom(true); } } catch (e) {}
             });
             pump();
-          }).catch(function (e) { var err = e instanceof Error ? e : new Error(String(e)); if (acc) err.partial = true; reject(err); });
+          }).catch(function (e) {
+            if (idleTimer) clearTimeout(idleTimer);
+            var err = e instanceof Error ? e : new Error(String(e));
+            if (acc) {
+              err.partial = true;
+              var part = cleanReply(acc);
+              if (part && !messages.some(function (m) { return m.role === "assistant" && m.content === part; })) { messages.push({ role: "assistant", content: part + "\n（信号断了半句…）", t: Date.now() }); saveMsgs(); }
+            }
+            reject(err);
+          });
         }
         pump();
       }).catch(function (e) { if (e.name === "AbortError") { resolve(""); } else { reject(e); } });
@@ -770,7 +802,7 @@
     if (trTimer) { clearTimeout(trTimer); trTimer = null; }
     $("sugg").innerHTML = "";
     addMsg("user", v, ooc); showTyping(ooc);
-    detectProxy().then(function () { return streamReply(ooc); }).catch(function (e) { if (e && (e.partial || /地区有访问限制|没有这个模型/.test(e.message || ""))) throw e; toast("网络抖了一下，正在重试…"); return streamReply(ooc); }).catch(function (e) { hideTyping(); $("chat").insertAdjacentHTML("beforeend", '<div class="row lover' + (ooc ? " ooc" : "") + '"><div class="mini-avatar">' + (ooc ? esc("AI") : avatarHtml(active, initial())) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>"); scrollBottom(true); }).then(function () { busy = false; updateSend(); genSuggestions(); processPicInLastMsg(); processTransitionInLastMsg(); });
+    detectProxy().then(function () { return streamReply(ooc); }).catch(function (e) { if (e && e.partial) { hideTyping(); renderAll(); return null; } if (e && /地区有访问限制|没有这个模型/.test(e.message || "")) throw e; toast("网络抖了一下，正在重试…"); return streamReply(ooc); }).catch(function (e) { hideTyping(); $("chat").insertAdjacentHTML("beforeend", '<div class="row lover' + (ooc ? " ooc" : "") + '"><div class="mini-avatar">' + (ooc ? esc("AI") : avatarHtml(active, initial())) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>"); scrollBottom(true); }).then(function () { busy = false; updateSend(); genSuggestions(); processPicInLastMsg(); processTransitionInLastMsg(); });
   }
   function updateSend() { $("send").disabled = busy || !$("input").value.trim(); }
   function needsKey() { if (proxyMode) return false; if (api.apiKey) return false; return !/\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)([:/]|$)/.test(api.baseUrl || ""); } // 云端/本地地址免 key；其它自定义地址才需要
@@ -873,7 +905,7 @@
       if (needsKey()) { toast("自定义地址需要 API Key，去设置里填上，或换回云端地址"); openSheet("sheetSettings"); return; }
       if (!proxyMode && !window.speechSynthesis) { toast("这个浏览器不支持语音播放，打不了电话"); return; }
       if (!proxyMode && !SR) { toast("语音输入需要 Chrome 或 Safari 哦"); return; }
-      call.on = true; call.t0 = Date.now();
+      call.on = true; call.t0 = Date.now(); rtOnce = false;
       $("sugg").innerHTML = "";
       $("callName").textContent = active.name || "TA"; $("callAvatar").innerHTML = avatarHtml(active, initial()); $("callLine").textContent = "";
       $("callOverlay").classList.add("show"); callTick(); call.timer = setInterval(callTick, 1000);
@@ -937,6 +969,7 @@
     p += "始终以角色身份说话，像真人打电话：口语、简短、有情绪，不要说自己是AI，不要列点。别重复自己说过的话，只说新内容，别输出任何标记。";
     return p;
   }
+  var rtOnce = false;
   function rtStart(voice) {
     rt.intentional = false; rt.gotAudio = false;
     var wsUrl = API_BASE.replace(/^https/, "wss").replace(/^http/, "ws") + "/rt?token=" + encodeURIComponent(APP_TOKEN) + "&voice=" + encodeURIComponent(voice);
@@ -957,11 +990,14 @@
       else if (j.type === "vad.speech") { rtStopPlay(); callState("listening"); }
       else if (j.type === "turn.done") { if (call.on) callState("listening"); }
       else if (j.type === "rt.ready") { callState("listening"); }
-      else if (j.type === "rt.error") { rtFallback(j.message); }
+      else if (j.type === "rt.error") { if (rt.gotAudio) rtFallback(j.message); } // 通话中断线才降级；建连期错误交给 onclose 重连
       else if (j.type === "rt.close") { if (call.on && !rt.intentional) rtFallback("实时连接断了"); }
     };
-    ws.onerror = function () { if (call.on && !rt.gotAudio) rtFallback("实时通话没连上"); };
-    ws.onclose = function () { if (call.on && !rt.intentional && !rt.gotAudio) rtFallback("实时通话没连上"); };
+    ws.onerror = function () {};
+    ws.onclose = function () {
+      if (call.on && !rt.intentional && !rt.gotAudio && !rtOnce) { rtOnce = true; setTimeout(function () { if (call.on && !rt.intentional) rtStart(voice); }, 600); return; } // 自动重连一次
+      if (call.on && !rt.intentional && !rt.gotAudio) rtFallback("实时通话没连上");
+    };
   }
   function rtStartMic() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { rtFallback("浏览器不支持麦克风"); return; }
@@ -1052,7 +1088,7 @@
   async function switchProfile(id) { if (busy) { toast("等这条回复完再切换哦"); return; } if (id === active.id) { closeSheets(); return; } var p = null; profiles.forEach(function (x) { if (x.id === id) p = x; }); if (!p) return; active = p; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); closeSheets(); greetIfEmpty(); $("sugg").innerHTML = ""; genSuggestions(); }
   function saveProfile() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; p.name = $("eName").value.trim() || "未命名"; p.gender = $("eGender").value || ""; p.callMe = $("eCallMe").value.trim(); p.persona = $("ePersona").value.trim(); p.voice = $("eVoice").value || ""; save("profiles", profiles); if (p.id === active.id) { paintHeader(); renderAll(); if ((p.persona || "").trim()) greetIfEmpty(); } renderProfiles(); toast("人设已保存"); }
   async function addProfile() { var p = { id: "p" + Date.now(), name: "", persona: "" }; profiles.push(p); save("profiles", profiles); editingId = p.id; await switchProfile(p.id); openSheet("sheetProfiles"); editingId = p.id; fillEditForm(); }
-  async function delProfile() { if (profiles.length <= 1) { toast("至少保留一个人设"); return; } var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; if (!confirm("删除人设「" + p.name + "」？和TA的聊天记录也会一起删掉。")) return; profiles = profiles.filter(function (x) { return x.id !== p.id; }); save("profiles", profiles); try { localStorage.removeItem(storeKey("msg." + p.id)); localStorage.removeItem(storeKey("mem." + p.id)); } catch (e) {} try { fetch(API_BASE + "/avatar", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ key: storeKey("avatar." + p.id), action: "del" }) }); } catch (e) {} if (editingId === p.id) editingId = profiles[0].id; if (active.id === p.id) { active = profiles[0]; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); } renderProfiles(); fillEditForm(); toast("已删除"); }
+  async function delProfile() { if (profiles.length <= 1) { toast("至少保留一个人设"); return; } var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; if (!confirm("删除人设「" + p.name + "」？和TA的聊天记录也会一起删掉。")) return; profiles = profiles.filter(function (x) { return x.id !== p.id; }); save("profiles", profiles); try { localStorage.removeItem(storeKey("msg." + p.id)); localStorage.removeItem(storeKey("mem." + p.id)); } catch (e) {} try { fetch(API_BASE + "/avatar", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN, "Authorization": "Bearer " + SESS_TOKEN }, body: JSON.stringify({ key: storeKey("avatar." + p.id), action: "del" }) }); } catch (e) {} if (editingId === p.id) editingId = profiles[0].id; if (active.id === p.id) { active = profiles[0]; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); } renderProfiles(); fillEditForm(); toast("已删除"); }
 
   var FAVORITE_MODELS = [{ match: "openrouter.ai", list: [
     { id: "thedrummer/cydonia-24b-v4.1", label: "⭐ Cydonia 24B v4.1（写作首选/RP）" },
@@ -1238,7 +1274,7 @@
     });
   }
   function saveAvatar(p, b64) {
-    return fetch(API_BASE + "/avatar", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ key: storeKey("avatar." + p.id), data: b64 }) })
+    return fetch(API_BASE + "/avatar", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN, "Authorization": "Bearer " + SESS_TOKEN }, body: JSON.stringify({ key: storeKey("avatar." + p.id), data: b64 }) })
       .then(function (r) { if (!r.ok) throw new Error("保存失败 " + r.status); return r.json(); })
       .then(function () { p.avatar = String(Date.now()); save("profiles", profiles); paintAvPrev(); if (p.id === active.id) { paintHeader(); renderAll(); } });
   }
@@ -1457,14 +1493,16 @@
   async function boot() {
     var sess = getSession();
     if (!sess || !sess.acct) { showLogin(); return; }
+    if (!sess.token) { try { localStorage.removeItem("lover.session"); } catch (e) {} showLogin(); setTimeout(function () { toast("安全升级，请重新登录一次"); }, 300); return; }
     ACCT = sess.acct;
+    SESS_TOKEN = sess.token;
     $("acctName").textContent = sess.name || "";
     $("loginWrap").style.display = "none";
     await initApp();
   }
 
   /* 版本自动刷新：部署新版本后，旧页面打开时自动重载一次 */
-  var BUILD_ID = "20260814a";
+  var BUILD_ID = "20260814b";
   (function () {
     try {
       if (localStorage.getItem("lover.build") !== BUILD_ID) {
