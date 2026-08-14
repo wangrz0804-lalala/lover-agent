@@ -60,6 +60,13 @@ function ossRequest(method, objectKey, bodyBuf) {
 function safeKey(k) {
   return String(k || "").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200);
 }
+/* 登录功能上线前的旧数据走的是扁平 key（lover.profiles / lover.msg.p1 …，不带账号段）。
+   它们曾被老版本页面当作"无主数据"拉进任意新账号，造成串号。
+   这里对这类 key 一律禁读禁写：老缓存页面再取也只能拿到 null，新账号从此彻底独立。
+   带账号的命名空间 key 形如 lover.{16位hex}.xxx，账号段是纯 hex，不会命中下面的词表。 */
+function isLegacyFlatKey(k) {
+  return /^lover\.(api|profiles|lastActive|settings|messages|memorySummary|msg\.|mem\.)/.test(k);
+}
 
 /* ---------- 静态文件（前端由 FC 直接吐出；OSS 默认域名会强制下载网页） ---------- */
 const STATIC_FILES = {
@@ -160,6 +167,10 @@ const server = http.createServer(async (req, res) => {
     const action = body.action;
     const key = safeKey(body.key);
     if (!key) return json(res, 400, { error: "缺少 key" });
+    if (isLegacyFlatKey(key)) {
+      if (action === "get") return json(res, 200, null); // 旧扁平数据一律视为无，杜绝新账号继承
+      if (action === "set" || action === "del") return json(res, 403, { error: "旧版扁平 key 已冻结" });
+    }
     if (action === "get") {
       let r;
       try { r = await ossRequest("GET", "sync/" + key + ".json"); }
@@ -175,6 +186,13 @@ const server = http.createServer(async (req, res) => {
       try { r = await ossRequest("PUT", "sync/" + key + ".json", buf); }
       catch (e) { return json(res, 502, { error: "同步服务连接失败" }); }
       if (!r.ok) { const t = await r.text().catch(() => ""); return json(res, 502, { error: "同步写入失败 " + r.status + " " + t.slice(0, 200) }); }
+      return json(res, 200, { success: true });
+    }
+    if (action === "del") {
+      let r;
+      try { r = await ossRequest("DELETE", "sync/" + key + ".json"); }
+      catch (e) { return json(res, 502, { error: "同步服务连接失败" }); }
+      if (!r.ok && r.status !== 404) return json(res, 502, { error: "同步删除失败 " + r.status });
       return json(res, 200, { success: true });
     }
     return json(res, 400, { error: "无效的操作" });
