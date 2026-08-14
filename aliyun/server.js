@@ -15,7 +15,6 @@ const OSS_AK_ID = process.env.OSS_AK_ID || "";
 const OSS_AK_SECRET = process.env.OSS_AK_SECRET || "";
 const OSS_BUCKET = process.env.OSS_BUCKET || "lover-sync-wrz0804";
 const OSS_HOST = OSS_BUCKET + ".oss-cn-beijing.aliyuncs.com";
-const DASHSCOPE_KEY = process.env.DASHSCOPE_KEY || "";
 
 function cors(res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -191,18 +190,17 @@ const server = http.createServer(async (req, res) => {
     return res.end(text);
   }
 
-  /* --- 真人音色 TTS（CosyVoice 代理） --- */
+  /* --- 真人音色 TTS（订阅自带 Qwen-Audio-TTS 代理） --- */
   if (req.method === "POST" && url === "/tts") {
-    if (!DASHSCOPE_KEY) return json(res, 503, { error: "服务端未配置 DASHSCOPE_KEY" });
     const text = String(body.text || "").trim().slice(0, 500);
     if (!text) return json(res, 400, { error: "text 不能为空" });
-    const voice = String(body.voice || "longwan").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40);
+    const voice = String(body.voice || "longanlingxin").replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 40);
     let r;
     try {
-      r = await fetch("https://dashscope.aliyuncs.com/compatible-mode/v1/audio/speech", {
+      r = await fetch(UPSTREAM.replace(/\/compatible-mode\/v1$/, "") + "/api/v1/services/audio/tts/SpeechSynthesizer", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + DASHSCOPE_KEY },
-        body: JSON.stringify({ model: "cosyvoice-v1", voice: voice, input: text }),
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + MODEL_KEY },
+        body: JSON.stringify({ model: "qwen-audio-3.0-tts-plus", input: { text: text, voice: voice, format: "wav", sample_rate: 24000 } }),
       });
     } catch (e) {
       return json(res, 502, { error: "TTS 服务连接失败" });
@@ -211,9 +209,15 @@ const server = http.createServer(async (req, res) => {
       const t = await r.text().catch(() => "");
       return json(res, 502, { error: "TTS 失败 " + r.status + " " + t.slice(0, 150) });
     }
-    const buf = Buffer.from(await r.arrayBuffer());
+    let audioUrl = "";
+    try { audioUrl = (JSON.parse(await r.text())).output.audio.url; } catch (e) { return json(res, 502, { error: "TTS 返回解析失败" }); }
+    if (!audioUrl) return json(res, 502, { error: "TTS 没有返回音频" });
+    let ar;
+    try { ar = await fetch(audioUrl.replace(/^http:\/\//, "https://")); } catch (e) { return json(res, 502, { error: "音频拉取失败" }); }
+    if (!ar.ok) return json(res, 502, { error: "音频拉取失败 " + ar.status });
+    const buf = Buffer.from(await ar.arrayBuffer());
     cors(res);
-    res.writeHead(200, { "Content-Type": "audio/mpeg", "Content-Length": buf.length });
+    res.writeHead(200, { "Content-Type": "audio/wav", "Content-Length": buf.length });
     return res.end(buf);
   }
 
