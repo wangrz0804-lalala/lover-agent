@@ -1193,12 +1193,12 @@
     var el = $("sugg"); if (!el) return;
     el.innerHTML = "";
     if (chatMode === "ai" || call.on || !(active.persona || "").trim()) return;
-    var last = null;
-    for (var i = messages.length - 1; i >= 0; i--) { if (messages[i].role === "assistant" && !messages[i].ooc) { last = messages[i]; break; } }
-    if (!last) return;
-    var sys = "你是回复建议助手。用户正和角色「" + active.name + "」聊天，角色刚说了下面这句话。请写 3 条用户可能回的话，方向各不相同（撒娇、关心、提问、调侃、接话等），口语、每条 12 字内。只输出三行，每行一条，不要序号不要解释。";
+    var hist = messages.filter(function (m) { return (m.role === "user" || m.role === "assistant") && !m.ooc; }).slice(-5);
+    if (!hist.length || hist[hist.length - 1].role !== "assistant") return;
+    var ctx = hist.map(function (m) { return (m.role === "user" ? "用户：" : active.name + "：") + (m.role === "assistant" ? cleanReply(m.content) : m.content); }).join("\n");
+    var sys = "你是帮用户想回复的助手。下面是用户与角色「" + active.name + "」的最近对话，最后一条是角色说的。请站在用户（人类一方）的立场，写 3 条可以直接发给角色的回复。要求：用用户对角色说话的口吻，绝不能写成角色的语气；简短口语、每条 12 字内；三条方向不同（接话、调侃、关心、提问等）。示例：角色说「手有点凉，别乱动哦」→ 可回「帮你捂捂就不凉了」「又不好好穿衣服！」「凉还往我怀里塞？」。只输出三行，每行一条，不要序号不要解释。";
     var cfg = proxyMode ? { baseUrl: api.baseUrl, apiKey: api.apiKey, model: "qwen3.6-flash" } : api;
-    llmFetchWith(cfg, [{ role: "system", content: sys }, { role: "user", content: cleanReply(last.content).slice(0, 300) }], false)
+    llmFetchWith(cfg, [{ role: "system", content: sys }, { role: "user", content: ctx.slice(0, 600) }], false)
       .then(function (r) { return r.json(); })
       .then(function (j) {
         var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
