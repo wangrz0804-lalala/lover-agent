@@ -640,7 +640,7 @@
   }
   function apiMessages(antiRepeat) {
     var hist = messages.filter(function (m) { return (m.role === "user" || m.role === "assistant") && !m.ooc; }).slice(-12).map(function (m) { return { role: m.role, content: m.role === "assistant" ? cleanReply(m.content) : m.content }; });
-    var anchor = "（保持人设：你是「" + active.name + "」，严格按开头设定里的性格和说话方式回应，别漂移、别重复自己说过的话。只写这一轮的新内容，别重发或拼接旧回复，别输出 markdown 或任何标记。）";
+    var anchor = "（保持人设：你是「" + active.name + "」，严格按开头设定里的性格和说话方式回应，别漂移、别重复自己说过的话。只写这一轮的新内容，别重发或拼接旧回复，别输出 markdown 或任何标记。回复的长短和风格按当前人设与话题需要来，不要被历史消息的长短或旧语气带偏。）";
     if (antiRepeat) anchor += "（注意：你上一条回复跟之前说过的太像了。这次必须换个完全不同的说法和内容走向。）";
     return [{ role: "system", content: systemPrompt() }].concat(hist).concat([{ role: "system", content: anchor }]);
   }
