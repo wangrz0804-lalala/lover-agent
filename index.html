@@ -103,7 +103,7 @@
   #sugg { display: flex; gap: 6px; padding: 7px 12px 0; overflow-x: auto; scrollbar-width: none; background: rgba(250,246,241,.95); }
   #sugg:empty { display: none; }
   #sugg::-webkit-scrollbar { display: none; }
-  #sugg .chip { flex: none; max-width: 72%; padding: 7px 12px; border-radius: 15px; border: 1px solid var(--line); background: #fff; font-size: 13px; color: var(--ink-2); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: inherit; }
+  #sugg .chip { flex: none; padding: 7px 12px; border-radius: 15px; border: 1px solid var(--line); background: #fff; font-size: 13px; color: var(--ink-2); cursor: pointer; white-space: nowrap; font-family: inherit; }
   #sugg .chip:active { opacity: .65; }
   #eRec .rec-chip { display: inline-block; margin: 0 6px 6px 0; padding: 6px 10px; border-radius: 13px; border: 1px solid var(--line); background: #fff; font-size: 12px; color: var(--ink-2); cursor: pointer; }
   #eRec .rec-chip:active { opacity: .65; }
@@ -1232,13 +1232,13 @@
     var hist = messages.filter(function (m) { return (m.role === "user" || m.role === "assistant") && !m.ooc; }).slice(-5);
     if (!hist.length || hist[hist.length - 1].role !== "assistant") return;
     var ctx = hist.map(function (m) { return (m.role === "user" ? "用户：" : active.name + "：") + (m.role === "assistant" ? cleanReply(m.content) : m.content); }).join("\n");
-    var sys = "你是帮用户想回复的助手。下面是用户与角色「" + active.name + "」的最近对话，最后一条是角色说的。请站在用户（人类一方）的立场，写 3 条可以直接发给角色的回复。要求：用用户对角色说话的口吻，绝不能写成角色的语气；简短口语、每条 12 字内；三条方向不同（接话、调侃、关心、提问等）。示例：角色说「手有点凉，别乱动哦」→ 可回「帮你捂捂就不凉了」「又不好好穿衣服！」「凉还往我怀里塞？」。只输出三行，每行一条，不要序号不要解释。";
+    var sys = "你是帮用户想回复的助手。下面是用户与角色「" + active.name + "」的最近对话，最后一条是角色说的。请站在用户（人类一方）的立场，写 3 条可以直接发给角色的回复。要求：用用户对角色说话的口吻，绝不能写成角色的语气；每条 20 字内，可以带一个简短的（动作白描）写用户自己的动作，增强画面感，亲密或有张力的场景要带；三条方向不同（接话、调侃、关心、提问、顺势推进等）。示例：角色说「手有点凉，别乱动哦」→ 可回「（握住你的手）帮你捂捂就不凉了」「又不好好穿衣服！」「（把你搂进怀里）凉还往我怀里塞？」。只输出三行，每行一条，不要序号不要解释。";
     var cfg = proxyMode ? { baseUrl: api.baseUrl, apiKey: api.apiKey, model: "qwen3.6-flash" } : api;
     llmFetchWith(cfg, [{ role: "system", content: sys }, { role: "user", content: ctx.slice(0, 600) }], false)
       .then(function (r) { return r.json(); })
       .then(function (j) {
         var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-        var lines = cleanReply(c).split(/\n+/).map(function (s) { return s.replace(/^[\d\.\-\*、\)）\s]+/, "").trim(); }).filter(function (s) { return s && s.length <= 20; }).slice(0, 3);
+        var lines = cleanReply(c).split(/\n+/).map(function (s) { return s.replace(/^[\d\.\-\*、\)）\s]+/, "").trim(); }).filter(function (s) { return s && s.length <= 30; }).slice(0, 3);
         if (!lines.length || chatMode === "ai" || call.on) return;
         el.innerHTML = lines.map(function (s) { return '<button class="chip" data-sugg="' + esc(s) + '">' + esc(s) + "</button>"; }).join("");
       }).catch(function () {});
