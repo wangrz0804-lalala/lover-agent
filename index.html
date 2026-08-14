@@ -79,6 +79,7 @@
     margin-top: 2px;
   }
   .row.user .mini-avatar { background: var(--user-bubble); }
+  .mini-avatar img, #hdAvatar img, .call-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; display: block; }
   .bubble {
     padding: 10px 13px; border-radius: 16px; font-size: 15px; line-height: 1.55;
     word-break: break-word; white-space: pre-wrap;
@@ -365,6 +366,16 @@
         <option value="m">男声</option>
       </select>
     </div>
+    <div class="field">
+      <label>头像</label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <div id="eAvPrev" style="width:52px;height:52px;border-radius:50%;background:rgba(0,0,0,.08);overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0"></div>
+        <select id="eAvStyle"><option value="anime">日系动漫</option><option value="d3">3D 卡通</option><option value="real">写实摄影</option></select>
+        <button class="btn ghost" id="btnGenAv">生成头像</button>
+        <button class="btn ghost" id="btnUpAv">上传</button>
+        <input type="file" id="eAvFile" accept="image/*" style="display:none">
+      </div>
+    </div>
     <button class="btn primary" id="btnSaveProf">保存人设</button>
     <button class="btn ghost" id="btnAddProf">新增一个人设</button>
     <button class="btn danger" id="btnDelProf">删除这个人设</button>
@@ -533,6 +544,14 @@
   var TOOL_TAG_RE = new RegExp("<" + "/?tool_call>", "gi");
   function cleanReply(s) { s = String(s == null ? "" : s); s = s.replace(THINK_BLOCK_RE, ""); s = s.replace(TOOL_BLOCK_RE, ""); s = s.replace(THINK_OPEN_RE, ""); s = s.replace(THINK_CLOSE_RE, ""); s = s.replace(TOOL_TAG_RE, ""); return s.trim(); } // 剥掉推理/工具调用泄漏的标签
   function initial() { return (active.name || "TA").trim().charAt(0); }
+  function avatarUrl(p) {
+    if (!p || !p.avatar || !proxyMode) return "";
+    return API_BASE + "/avatar?key=" + encodeURIComponent(storeKey("avatar." + p.id)) + "&v=" + encodeURIComponent(String(p.avatar)) + "&token=" + encodeURIComponent(APP_TOKEN);
+  }
+  function avatarHtml(p, fallbackChar) {
+    var u = avatarUrl(p);
+    return u ? '<img src="' + u + '" alt="">' : esc(fallbackChar);
+  }
 
   function renderAll() {
     if (!messages.length && !(active.persona || "").trim()) {
@@ -561,11 +580,12 @@
     var ooc = !!m.ooc;
     var who = m.role === "user" ? "user" : "lover";
     var av = ooc ? "AI" : (m.role === "user" ? (userCall() || "我").trim().charAt(0) : initial());
+    var avHtml = (m.role === "assistant" && !ooc) ? avatarHtml(active, av) : esc(av);
     var spk = (m.role === "assistant" && !ooc && !manageMode) ? '<button class="speak-btn' + (i === speakingIdx ? " on" : "") + '" data-speak="' + i + '" aria-label="朗读"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></button>' : "";
     var check = manageMode ? '<div class="msg-check">' + (selected[i] ? "✓" : "") + "</div>" : "";
     var cls = "row " + who + (ooc ? " ooc" : "") + (manageMode && selected[i] ? " sel" : "");
     var shown = (m.role === "assistant") ? cleanReply(m.content) : m.content;
-    return '<div class="' + cls + '" data-i="' + i + '">' + check + '<div class="mini-avatar">' + esc(av) + '</div><div class="bubble">' + esc(shown) + "</div>" + spk + "</div>";
+    return '<div class="' + cls + '" data-i="' + i + '">' + check + '<div class="mini-avatar">' + avHtml + '</div><div class="bubble">' + esc(shown) + "</div>" + spk + "</div>";
   }
   function stampEl(t) {
     var d = new Date(t), now = new Date();
@@ -575,12 +595,12 @@
   }
   function paintHeader() {
     $("hdName").textContent = active.name || "未设置角色";
-    $("hdAvatar").textContent = (active.name || "✦").trim().charAt(0);
+    $("hdAvatar").innerHTML = avatarHtml(active, (active.name || "✦").trim().charAt(0));
     document.title = active.name || "恋人";
   }
 
   var typingRow = null;
-  function showTyping(ooc) { hideTyping(); typingRow = document.createElement("div"); typingRow.className = "row lover" + (ooc ? " ooc" : ""); typingRow.innerHTML = '<div class="mini-avatar">' + esc(ooc ? "AI" : initial()) + '</div><div class="bubble"><span class="typing"><i></i><i></i><i></i></span></div>'; $("chat").appendChild(typingRow); scrollBottom(true); }
+  function showTyping(ooc) { hideTyping(); typingRow = document.createElement("div"); typingRow.className = "row lover" + (ooc ? " ooc" : ""); typingRow.innerHTML = '<div class="mini-avatar">' + (ooc ? esc("AI") : avatarHtml(active, initial())) + '</div><div class="bubble"><span class="typing"><i></i><i></i><i></i></span></div>'; $("chat").appendChild(typingRow); scrollBottom(true); }
   function hideTyping() { if (typingRow) { typingRow.remove(); typingRow = null; } }
   var toastTimer = null;
   function toast(s) { var t = $("toast"); t.textContent = s; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2600); }
@@ -645,7 +665,7 @@
         var ct = resp.headers.get("Content-Type") || "";
         if (!resp.ok || ct.indexOf("event-stream") === -1) { return resp.text().then(function (t) { var msg = "请求失败（" + resp.status + "）"; try { var j = JSON.parse(t); if (j.error) msg = typeof j.error === "string" ? j.error : (j.error.message || JSON.stringify(j.error)); } catch (e) { if (t) msg += "\n" + t.slice(0, 300); } reject(new Error(msg)); }); }
         hideTyping();
-        var row = document.createElement("div"); row.className = "row lover" + (ooc ? " ooc" : ""); row.innerHTML = '<div class="mini-avatar">' + esc(ooc ? "AI" : initial()) + '</div><div class="bubble"></div>';
+        var row = document.createElement("div"); row.className = "row lover" + (ooc ? " ooc" : ""); row.innerHTML = '<div class="mini-avatar">' + (ooc ? esc("AI") : avatarHtml(active, initial())) + '</div><div class="bubble"></div>';
         $("chat").appendChild(row);
         var bubble = row.querySelector(".bubble");
         var acc = "";
@@ -694,7 +714,7 @@
     if (!ooc && !(active.persona || "").trim()) { toast("先给 TA 起个名字、写上人设哦"); openSheet("sheetProfiles"); return; }
     $("input").value = ""; autoGrow(); busy = true; updateSend();
     addMsg("user", v, ooc); showTyping(ooc);
-    detectProxy().then(function () { return streamReply(ooc); }).catch(function (e) { if (e && (e.partial || /地区有访问限制|没有这个模型/.test(e.message || ""))) throw e; toast("网络抖了一下，正在重试…"); return streamReply(ooc); }).catch(function (e) { hideTyping(); $("chat").insertAdjacentHTML("beforeend", '<div class="row lover' + (ooc ? " ooc" : "") + '"><div class="mini-avatar">' + esc(ooc ? "AI" : initial()) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>"); scrollBottom(true); }).then(function () { busy = false; updateSend(); });
+    detectProxy().then(function () { return streamReply(ooc); }).catch(function (e) { if (e && (e.partial || /地区有访问限制|没有这个模型/.test(e.message || ""))) throw e; toast("网络抖了一下，正在重试…"); return streamReply(ooc); }).catch(function (e) { hideTyping(); $("chat").insertAdjacentHTML("beforeend", '<div class="row lover' + (ooc ? " ooc" : "") + '"><div class="mini-avatar">' + (ooc ? esc("AI") : avatarHtml(active, initial())) + '</div><div class="bubble error">' + esc(friendlyErr(e)) + "</div></div>"); scrollBottom(true); }).then(function () { busy = false; updateSend(); });
   }
   function updateSend() { $("send").disabled = busy || !$("input").value.trim(); }
   function needsKey() { if (proxyMode) return false; if (api.apiKey) return false; return !/\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)([:/]|$)/.test(api.baseUrl || ""); } // 云端/本地地址免 key；其它自定义地址才需要
@@ -791,7 +811,7 @@
       if (!proxyMode && !window.speechSynthesis) { toast("这个浏览器不支持语音播放，打不了电话"); return; }
       if (!proxyMode && !SR) { toast("语音输入需要 Chrome 或 Safari 哦"); return; }
       call.on = true; call.t0 = Date.now();
-      $("callName").textContent = active.name || "TA"; $("callAvatar").textContent = initial(); $("callLine").textContent = "";
+      $("callName").textContent = active.name || "TA"; $("callAvatar").innerHTML = avatarHtml(active, initial()); $("callLine").textContent = "";
       $("callOverlay").classList.add("show"); callTick(); call.timer = setInterval(callTick, 1000);
       if (proxyMode) rtStart(ttsGender()); else legacyCallBegin(); // 云端走端到端实时语音，失败自动降级
     });
@@ -964,11 +984,11 @@
     });
     $("profList").innerHTML = html;
   }
-  function fillEditForm() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; $("eName").value = p.name; $("eCallMe").value = p.callMe || ""; $("ePersona").value = p.persona; $("eVoice").value = p.voice || ""; }
+  function fillEditForm() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; $("eName").value = p.name; $("eCallMe").value = p.callMe || ""; $("ePersona").value = p.persona; $("eVoice").value = p.voice || ""; paintAvPrev(); }
   async function switchProfile(id) { if (busy) { toast("等这条回复完再切换哦"); return; } if (id === active.id) { closeSheets(); return; } var p = null; profiles.forEach(function (x) { if (x.id === id) p = x; }); if (!p) return; active = p; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); closeSheets(); greetIfEmpty(); }
   function saveProfile() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; p.name = $("eName").value.trim() || "未命名"; p.callMe = $("eCallMe").value.trim(); p.persona = $("ePersona").value.trim(); p.voice = $("eVoice").value || ""; save("profiles", profiles); if (p.id === active.id) { paintHeader(); renderAll(); if ((p.persona || "").trim()) greetIfEmpty(); } renderProfiles(); toast("人设已保存"); }
   async function addProfile() { var p = { id: "p" + Date.now(), name: "", persona: "" }; profiles.push(p); save("profiles", profiles); editingId = p.id; await switchProfile(p.id); openSheet("sheetProfiles"); editingId = p.id; fillEditForm(); }
-  async function delProfile() { if (profiles.length <= 1) { toast("至少保留一个人设"); return; } var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; if (!confirm("删除人设「" + p.name + "」？和TA的聊天记录也会一起删掉。")) return; profiles = profiles.filter(function (x) { return x.id !== p.id; }); save("profiles", profiles); try { localStorage.removeItem(storeKey("msg." + p.id)); localStorage.removeItem(storeKey("mem." + p.id)); } catch (e) {} if (editingId === p.id) editingId = profiles[0].id; if (active.id === p.id) { active = profiles[0]; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); } renderProfiles(); fillEditForm(); toast("已删除"); }
+  async function delProfile() { if (profiles.length <= 1) { toast("至少保留一个人设"); return; } var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); if (!p) return; if (!confirm("删除人设「" + p.name + "」？和TA的聊天记录也会一起删掉。")) return; profiles = profiles.filter(function (x) { return x.id !== p.id; }); save("profiles", profiles); try { localStorage.removeItem(storeKey("msg." + p.id)); localStorage.removeItem(storeKey("mem." + p.id)); } catch (e) {} try { fetch(API_BASE + "/avatar", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ key: storeKey("avatar." + p.id), action: "del" }) }); } catch (e) {} if (editingId === p.id) editingId = profiles[0].id; if (active.id === p.id) { active = profiles[0]; try { sessionStorage.setItem("lover.active", active.id); } catch (e) {} save("lastActive", active.id); await loadConv(); paintHeader(); renderAll(); } renderProfiles(); fillEditForm(); toast("已删除"); }
 
   var FAVORITE_MODELS = [{ match: "openrouter.ai", list: [
     { id: "thedrummer/cydonia-24b-v4.1", label: "⭐ Cydonia 24B v4.1（写作首选/RP）" },
@@ -1090,6 +1110,60 @@
   $("btnSaveProf").addEventListener("click", saveProfile);
   $("btnAddProf").addEventListener("click", addProfile);
   $("btnDelProf").addEventListener("click", delProfile);
+  $("btnGenAv").addEventListener("click", genAvatar);
+  $("btnUpAv").addEventListener("click", function () { $("eAvFile").click(); });
+  $("eAvFile").addEventListener("change", function () { var f = this.files && this.files[0]; this.value = ""; if (f) uploadAvatarFile(f); });
+
+  /* ----- 头像：生成 / 上传 / 存储 ----- */
+  function editProfile() { var p = null; profiles.forEach(function (x) { if (x.id === editingId) p = x; }); return p; }
+  function paintAvPrev() {
+    var p = editProfile(); var el = $("eAvPrev"); if (!el) return;
+    var u = avatarUrl(p);
+    el.innerHTML = u ? '<img src="' + u + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:50%">' : esc(((p && p.name) || "?").charAt(0));
+  }
+  function genAvatar() {
+    var p = editProfile(); if (!p) return;
+    if (!proxyMode) { toast("头像功能要用云端地址哦"); return; }
+    var desc = $("ePersona").value.trim() || $("eName").value.trim();
+    if (!desc) { toast("先写人设，再生成头像"); return; }
+    var styleTxt = { anime: "日系动漫风格", d3: "皮克斯迪士尼3D渲染风格", real: "写实摄影风格" }[$("eAvStyle").value] || "日系动漫风格";
+    var prompt = "角色头像，肖像构图，头肩特写，干净纯色背景，高质量。人物设定：" + desc.slice(0, 300) + "。风格：" + styleTxt + "。";
+    toast("头像生成中，约15秒…");
+    $("btnGenAv").disabled = true;
+    fetch(API_BASE + "/genimg", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ prompt: prompt }) })
+      .then(function (r) { if (!r.ok) throw new Error("生成失败 " + r.status); return r.blob(); })
+      .then(shrinkToJpeg)
+      .then(function (b64) { return saveAvatar(p, b64); })
+      .then(function () { toast("头像已保存"); })
+      .catch(function (e) { toast(e.message || "头像生成失败"); })
+      .then(function () { $("btnGenAv").disabled = false; });
+  }
+  function uploadAvatarFile(f) {
+    var p = editProfile(); if (!p) return;
+    if (!proxyMode) { toast("头像功能要用云端地址哦"); return; }
+    shrinkToJpeg(f).then(function (b64) { return saveAvatar(p, b64); }).then(function () { toast("头像已保存"); }).catch(function () { toast("头像上传失败"); });
+  }
+  function shrinkToJpeg(blob) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(blob);
+      var img = new Image();
+      img.onload = function () {
+        var S = 512, c = document.createElement("canvas"); c.width = S; c.height = S;
+        var x = c.getContext("2d");
+        var m = Math.min(img.width, img.height);
+        x.drawImage(img, (img.width - m) / 2, (img.height - m) / 2, m, m, 0, 0, S, S);
+        URL.revokeObjectURL(url);
+        resolve(c.toDataURL("image/jpeg", 0.85));
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error("图片解析失败")); };
+      img.src = url;
+    });
+  }
+  function saveAvatar(p, b64) {
+    return fetch(API_BASE + "/avatar", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ key: storeKey("avatar." + p.id), data: b64 }) })
+      .then(function (r) { if (!r.ok) throw new Error("保存失败 " + r.status); return r.json(); })
+      .then(function () { p.avatar = String(Date.now()); save("profiles", profiles); paintAvPrev(); if (p.id === active.id) { paintHeader(); renderAll(); } });
+  }
   $("send").addEventListener("click", send);
   $("input").addEventListener("input", function () { autoGrow(); updateSend(); });
   $("input").addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });

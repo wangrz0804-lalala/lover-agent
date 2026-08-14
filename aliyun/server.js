@@ -42,9 +42,9 @@ function tokenOk(req, body) {
 }
 
 /* ---------- OSS V1 签名 ---------- */
-function ossRequest(method, objectKey, bodyBuf) {
+function ossRequest(method, objectKey, bodyBuf, contentTypeOverride) {
   const date = new Date().toUTCString();
-  const contentType = bodyBuf ? "application/json" : "";
+  const contentType = bodyBuf ? (contentTypeOverride || "application/json") : "";
   const md5 = bodyBuf ? crypto.createHash("md5").update(bodyBuf).digest("base64") : "";
   const resource = "/" + OSS_BUCKET + "/" + objectKey;
   const stringToSign = [method, md5, contentType, date, resource].join("\n");
@@ -106,6 +106,19 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(r.status, { "Content-Type": "application/json; charset=utf-8" });
       return res.end(text);
     }
+    if (url === "/avatar") {
+      let q; try { q = new URL(req.url, "http://x").searchParams; } catch (e) { return json(res, 400, { error: "bad url" }); }
+      if (q.get("token") !== APP_TOKEN) return json(res, 401, { error: "token 校验失败" });
+      const key = safeKey(q.get("key"));
+      if (!key || !/^lover\.[0-9a-f]{16}\.avatar\./.test(key)) return json(res, 400, { error: "非法 key" });
+      let r;
+      try { r = await ossRequest("GET", "sync/" + key + ".jpg"); } catch (e) { return json(res, 502, { error: "头像服务连接失败" }); }
+      if (!r.ok) return json(res, 404, { error: "头像不存在" });
+      const buf = Buffer.from(await r.arrayBuffer());
+      cors(res);
+      res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "public, max-age=86400" });
+      return res.end(buf);
+    }
     const entry = STATIC_FILES[url];
     if (entry) return serveStatic(res, entry);
     return json(res, 404, { error: "not found" });
@@ -115,6 +128,48 @@ const server = http.createServer(async (req, res) => {
   try { body = await readBody(req); } catch (e) { return json(res, 400, { error: "请求体不是合法 JSON" }); }
 
   if (!tokenOk(req, body)) return json(res, 401, { error: "token 校验失败" });
+
+  /* --- 头像上传（base64 -> OSS） --- */
+  if (req.method === "POST" && url === "/avatar") {
+    const key = safeKey(body.key);
+    if (!key || !/^lover\.[0-9a-f]{16}\.avatar\./.test(key)) return json(res, 400, { error: "非法 key" });
+    if (body.action === "del") {
+      try { await ossRequest("DELETE", "sync/" + key + ".jpg"); } catch (e) { return json(res, 502, { error: "头像服务连接失败" }); }
+      return json(res, 200, { success: true });
+    }
+    const raw = String(body.data || "").replace(/^data:[^;]+;base64,/, "");
+    const buf = Buffer.from(raw, "base64");
+    if (!buf.length || buf.length > 2 * 1024 * 1024) return json(res, 400, { error: "图片大小不合适（2MB 内）" });
+    let r;
+    try { r = await ossRequest("PUT", "sync/" + key + ".jpg", buf, "image/jpeg"); } catch (e) { return json(res, 502, { error: "头像服务连接失败" }); }
+    if (!r.ok) { const t = await r.text().catch(() => ""); return json(res, 502, { error: "头像保存失败 " + r.status + " " + t.slice(0, 150) }); }
+    return json(res, 200, { success: true });
+  }
+
+  /* --- AI 生成头像（万相 wan2.7-image，订阅自带） --- */
+  if (req.method === "POST" && url === "/genimg") {
+    const prompt = String(body.prompt || "").trim().slice(0, 800);
+    if (!prompt) return json(res, 400, { error: "prompt 不能为空" });
+    let r;
+    try {
+      r = await fetch(UPSTREAM.replace(/\/compatible-mode\/v1$/, "") + "/api/v1/services/aigc/multimodal-generation/generation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + MODEL_KEY },
+        body: JSON.stringify({ model: "wan2.7-image", input: { messages: [{ role: "user", content: [{ text: prompt }] }] }, parameters: { size: "768*768", n: 1 } }),
+      });
+    } catch (e) { return json(res, 502, { error: "生图服务连接失败" }); }
+    if (!r.ok) { const t = await r.text().catch(() => ""); return json(res, 502, { error: "生图失败 " + r.status + " " + t.slice(0, 150) }); }
+    let imgUrl = "";
+    try { imgUrl = (JSON.parse(await r.text())).output.choices[0].message.content[0].image; } catch (e) { return json(res, 502, { error: "生图结果解析失败" }); }
+    if (!imgUrl) return json(res, 502, { error: "没有生成图片" });
+    let ir;
+    try { ir = await fetch(imgUrl.replace(/^http:\/\//, "https://")); } catch (e) { return json(res, 502, { error: "图片拉取失败" }); }
+    if (!ir.ok) return json(res, 502, { error: "图片拉取失败 " + ir.status });
+    const buf = Buffer.from(await ir.arrayBuffer());
+    cors(res);
+    res.writeHead(200, { "Content-Type": "image/png", "Content-Length": buf.length });
+    return res.end(buf);
+  }
 
   /* --- chat 代理 --- */
   if (req.method === "POST" && url === "/chat") {
