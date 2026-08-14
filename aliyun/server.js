@@ -353,6 +353,8 @@ server.on("upgrade", (req, socket) => {
   let up = null, upReady = false, closed = false;
   const pending = [];
   const voice = (q.get("voice") || "longanlingxin").replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 40);
+  const sessionBase = { modalities: ["text", "audio"], voice: voice, input_audio_format: "pcm16", output_audio_format: "pcm16", turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 800 } };
+  const sendSession = (h) => h.send({ type: "session.update", session: sessionBase });
   rtConnect({
     onText: (t) => {
       let j; try { j = JSON.parse(t); } catch (e) { return; }
@@ -367,7 +369,7 @@ server.on("upgrade", (req, socket) => {
     onClose: () => { if (!closed) { closed = true; sendClient({ type: "rt.close" }); try { socket.end(); } catch (e) {} } },
   }).then((h) => {
     up = h; upReady = true;
-    h.send({ type: "session.update", session: { modalities: ["text", "audio"], voice: voice, input_audio_format: "pcm16", output_audio_format: "pcm16", turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 800 } } });
+    sendSession(h);
     while (pending.length) h.send(pending.shift());
   }).catch((e) => { sendClient({ type: "rt.error", message: String((e && e.message) || e) }); try { socket.end(); } catch (e2) {} });
   const feed = wsParser((op, payload) => {
@@ -377,6 +379,9 @@ server.on("upgrade", (req, socket) => {
     if (j.type === "audio.append") {
       const m = { type: "input_audio_buffer.append", audio: j.audio };
       if (upReady) up.send(m); else pending.push(m);
+    } else if (j.type === "context.set") {
+      sessionBase.instructions = String(j.text || "").slice(0, 4000);
+      if (upReady) sendSession(up); else pending.push({ type: "session.update", session: sessionBase });
     } else if (j.type === "text.send") {
       const msgs = [
         { type: "conversation.item.create", item: { type: "message", role: "user", content: [{ type: "input_text", text: String(j.text || "") }] } },

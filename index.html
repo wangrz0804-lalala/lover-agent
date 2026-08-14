@@ -848,6 +848,11 @@
 
   /* ----- 端到端实时通话：模型直接听+说（订阅自带 qwen-audio-3.0-realtime-plus） ----- */
   var rt = { ws: null, ac: null, proc: null, stream: null, srcs: [], playNext: 0, gotAudio: false, intentional: false };
+  function rtInstructions() {
+    var p = (active.persona || "") + "\n【对话设定】你的名字叫「" + (active.name || "TA") + "」，对方的昵称是「" + (userCall() || "亲爱的") + "」。";
+    p += "始终以角色身份说话，像真人打电话：口语、简短、有情绪，不要说自己是AI，不要列点。别重复自己说过的话。";
+    return p;
+  }
   function rtStart(voice) {
     rt.intentional = false; rt.gotAudio = false;
     var wsUrl = API_BASE.replace(/^https/, "wss").replace(/^http/, "ws") + "/rt?token=" + encodeURIComponent(APP_TOKEN) + "&voice=" + encodeURIComponent(voice);
@@ -857,7 +862,8 @@
     ws.onopen = function () {
       rtStartMic();
       callState("idle");
-      ws.send(JSON.stringify({ type: "text.send", text: "（电话刚接通，你主动打个招呼，简短自然，十几字就好。）" }));
+      ws.send(JSON.stringify({ type: "context.set", text: rtInstructions() }));
+      ws.send(JSON.stringify({ type: "text.send", text: "（电话刚接通，用你的角色身份主动打个招呼，简短自然，十几字就好。）" }));
     };
     ws.onmessage = function (ev) {
       var j; try { j = JSON.parse(ev.data); } catch (e) { return; }
