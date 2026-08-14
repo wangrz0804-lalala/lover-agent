@@ -726,7 +726,7 @@
               if (!ooc && !antiRepeat && similarToRecent(cleaned)) { bubble.parentElement.remove(); streamReply(false, true).then(resolve, reject); return; } // 和最近回复太像：撤回气泡，静默换一种说法
               var done = { role: "assistant", content: cleaned, t: Date.now() };
               if (ooc) done.ooc = true;
-              messages.push(done); saveMsgs(); if (!ooc) maybeSummarize(); resolve(cleaned); return;
+              messages.push(done); saveMsgs(); if (!ooc) { bubble.innerHTML = bubbleHtml(cleaned); scrollBottom(true); } if (!ooc) maybeSummarize(); resolve(cleaned); return;
             }
             buf += decoder.decode(r.value, { stream: true });
             var lines = buf.split("\n"); buf = lines.pop();
@@ -775,12 +775,15 @@
   function pickZhVoice() { if (!window.speechSynthesis) return null; var vs = speechSynthesis.getVoices() || []; return vs.filter(function (v) { return /^zh/i.test(v.lang); })[0] || vs.filter(function (v) { return /chinese/i.test(v.name); })[0] || null; }
   function cleanForSpeech(s) { return String(s).replace(/\[\[(pic:[^\]]*|图:[^\]]*|过渡:[^\]]*)\]\]/g, " ").replace(/\([^)]*\)/g, " ").replace(/（[^）]*）/g, " ").replace(/[*_#`>~|]/g, " ").replace(/\s+/g, " ").trim(); }
   function markSpeaking() { var btns = $("chat").querySelectorAll(".speak-btn"); for (var i = 0; i < btns.length; i++) { btns[i].classList.toggle("on", parseInt(btns[i].getAttribute("data-speak"), 10) === speakingIdx); } }
+  function genderFromText(t) {
+    t = t || "";
+    if (/女孩|女生|少女|女人|女性|她|姐|妹|女友|女朋友|妻|公主|女王|裙|罩杯|妈妈/.test(t)) return "f";
+    if (/男孩|男生|男人|男性|他|哥|弟|男友|男朋友|夫|大叔|帅哥|爸爸|总裁/.test(t)) return "m";
+    return "";
+  }
   function profileGender(p) {
     if (p && p.gender) return p.gender;
-    var t = (p && p.persona) || "";
-    if (/女|她|姐|妹|女友|女朋友|妻/.test(t)) return "f";
-    if (/男|他|哥|弟|男友|男朋友|夫/.test(t)) return "m";
-    return "";
+    return genderFromText((p && p.persona) || "");
   }
   function ttsGender() {
     if (active && active.voice === "m") return "m";
@@ -1268,7 +1271,7 @@
     var recent = "";
     for (var k = messages.length - 1; k >= 0 && k >= messages.length - 3; k--) recent += (messages[k].content || "") + " ";
     var intimate = /裸|赤裸|胸|床|脱|私处|下体|穴|阴茎|乳|臀|喘|吻|亲密|云雨|缠绵|想要你|睡/.test(desc + recent);
-    var g = profileGender(active);
+    var g = profileGender(active) || genderFromText(desc);
     var styleTxt = { anime: "日系动漫风格", d3: "皮克斯迪士尼3D渲染风格", real: "写实摄影风格" }[active.avStyle] || "日系动漫风格";
     var prompt = "角色发来的照片，自然真实的生活感，表情松弛带一点撩人。人物设定：" + (active.persona || "").slice(0, 200) + "。" + (g ? "角色性别：" + (g === "f" ? "女" : "男") + "。" : "") + "画面内容：" + desc + "。风格：" + styleTxt + "。";
     fetch(API_BASE + "/genimg", { method: "POST", headers: { "Content-Type": "application/json", "X-App-Token": APP_TOKEN }, body: JSON.stringify({ prompt: prompt, route: intimate ? "nsfw" : "safe", bare: "角色发来的生活照，自然真实，表情松弛带一点撩人。" + (g ? "角色性别：" + (g === "f" ? "女" : "男") + "。" : "") + "风格：" + styleTxt + "。" }) })

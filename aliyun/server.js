@@ -128,7 +128,7 @@ async function genImg2(prompt) {
   return null;
 }
 function sanitizePrompt(p) {
-  return String(p).replace(/(裸|赤裸|私处|下体|阴茎|阴道|乳头|乳晕|臀|穴|做爱|性交|插入|射|喘息|缠绵|云雨|高潮|鸡巴|肉棒|阳具|阴蒂|骚|浪叫|潮吹|发情|勾引|挑逗|娇喘|呻吟|情欲|欲望|舔|吮|操|肏|奶子|酥|麻|湿)/g, "").replace(/亲密[^，。；\n]*/g, "拥抱");
+  return String(p).replace(/(裸|赤裸|私处|下体|阴茎|阴道|乳头|乳晕|臀|穴|做爱|性交|插入|射|喘息|缠绵|云雨|高潮|鸡巴|肉棒|阳具|阴蒂|骚|浪叫|潮吹|发情|勾引|挑逗|娇喘|呻吟|情欲|欲望|舔|吮|操|肏|奶子|酥|麻|湿|丰满|曲线|毕露|紧身|身材)/g, "").replace(/亲密[^，。；\n]*/g, "拥抱");
 }
 async function genImage(route, prompt, bare) {
   if (route === "nsfw") return (await genImg2(prompt)) || (await genWan(sanitizePrompt(prompt))) || (bare ? await genWan(bare) : null);
