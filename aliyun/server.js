@@ -449,7 +449,9 @@ server.on("upgrade", (req, socket) => {
   const sendClient = (obj) => { try { socket.write(wsFrame(0x1, Buffer.from(JSON.stringify(obj)), false)); } catch (e) {} };
   let up = null, upReady = false, closed = false;
   const pending = [];
-  const voice = (q.get("voice") || "longanlingxin").replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 40);
+  let voice = (q.get("voice") || "").replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 40);
+  if (voice === "m") voice = "longanlufeng";
+  if (voice === "f" || !voice) voice = "longanlingxin";
   const sessionBase = { modalities: ["text", "audio"], voice: voice, input_audio_format: "pcm16", output_audio_format: "pcm16", turn_detection: { type: "server_vad", threshold: 0.5, silence_duration_ms: 800 } };
   const sendSession = (h) => h.send({ type: "session.update", session: sessionBase });
   rtConnect({
