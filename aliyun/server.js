@@ -187,6 +187,7 @@ const server = http.createServer(async (req, res) => {
       frequency_penalty: 0.7, // 抑制车轱辘话：已出现过的词再出现要扣分
       presence_penalty: 0.6,  // 鼓励往前推进，别原地打转
       max_tokens: 2000, // 放开长度：走心回复不被截断，仍留安全阀
+      enable_thinking: false, // 关掉推理模型的长思考：RP 要快、要直接，思考链只会拖慢并触发超时
     };
     /* 上游调用：429/5xx/网络错误自动重试；OpenRouter 另带兜底链——所选模型不稳时按序自动切换备用模型 */
     const OR_CHAIN = ["thedrummer/cydonia-24b-v4.1", "cognitivecomputations/dolphin-mistral-24b-venice-edition", "sao10k/l3.3-euryale-70b"];
