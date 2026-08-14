@@ -327,6 +327,10 @@
       <label>模型 API 地址 (OpenAI 兼容格式) </label>
       <input id="fBase" value="https://lover-api-qleohpgkdt.cn-beijing.fcapp.run" placeholder="https://lover-api-qleohpgkdt.cn-beijing.fcapp.run">
     </div>
+    <div class="field" id="fKeyWrap" style="display:none">
+      <label>API Key（仅存本机，不上传不同步）</label>
+      <input id="fKey" type="password" placeholder="sk-…">
+    </div>
     <div class="row2">
       <div class="field">
         <label>模型</label>
@@ -345,7 +349,7 @@
     <button class="btn primary" id="btnSave">保存</button>
     <button class="btn ghost" id="btnTest">测试连接</button>
     <button class="btn danger" id="btnClear">清空与当前人设的聊天记录和记忆</button>
-    <div class="hint">默认走云端代理，无需任何 Key，开箱即用：模型下拉里直接选就行。也兼容本地 Ollama/LM Studio 等免 Key 地址。其它需 Key 的自定义地址本版不再支持。聊天记录、模型、昵称按账号多端同步。</div>
+    <div class="hint">默认走云端代理，无需任何 Key，开箱即用。换成自定义地址时可填 API Key，Key 只存本机、不同步云端。聊天记录、模型、昵称按账号多端同步。</div>
     <div class="divider"></div>
     <div class="acct-row">当前账号 <b id="acctName">—</b><button class="mini-btn" id="btnLogout">退出登录</button></div>
   </div>
@@ -729,7 +733,7 @@
   function send() {
     var v = $("input").value.trim();
     if (!v || busy) return;
-    if (needsKey()) { toast("当前地址不可用，去设置里换回云端地址哦"); openSheet("sheetSettings"); return; }
+    if (needsKey()) { toast("自定义地址需要 API Key，去设置里填上，或换回云端地址"); openSheet("sheetSettings"); return; }
     var ooc = chatMode === "ai";
     if (!ooc && !(active.persona || "").trim()) { toast("先给 TA 起个名字、写上人设哦"); openSheet("sheetProfiles"); return; }
     $("input").value = ""; autoGrow(); busy = true; updateSend();
@@ -829,7 +833,7 @@
     if (!(active.persona || "").trim()) { toast("先给 TA 起个名字、写上人设，才能打电话哦"); openSheet("sheetProfiles"); return; }
     stopSpeak(); if (micOn) { micOn = false; try { micRec.stop(); } catch (e) {} }
     detectProxy().then(function () {
-      if (needsKey()) { toast("当前地址不可用，去设置里换回云端地址哦"); openSheet("sheetSettings"); return; }
+      if (needsKey()) { toast("自定义地址需要 API Key，去设置里填上，或换回云端地址"); openSheet("sheetSettings"); return; }
       if (!proxyMode && !window.speechSynthesis) { toast("这个浏览器不支持语音播放，打不了电话"); return; }
       if (!proxyMode && !SR) { toast("语音输入需要 Chrome 或 Safari 哦"); return; }
       call.on = true; call.t0 = Date.now();
@@ -990,7 +994,7 @@
 
   function openSheet(id) {
     closeSheets();
-    if (id === "sheetSettings") { $("fBase").value = api.baseUrl; $("fModel").value = api.model; $("fMyName").value = api.myName; refreshModelOptions(); } else { renderProfiles(); editingId = active.id; fillEditForm(); }
+    if (id === "sheetSettings") { $("fBase").value = api.baseUrl; $("fKey").value = api.apiKey || ""; $("fModel").value = api.model; $("fMyName").value = api.myName; syncKeyWrap(); refreshModelOptions(); } else { renderProfiles(); editingId = active.id; fillEditForm(); }
     $("mask").classList.add("show"); $(id).classList.add("show");
   }
   function closeSheets() { $("mask").classList.remove("show"); $("sheetSettings").classList.remove("show"); $("sheetProfiles").classList.remove("show"); $("sheetEditMsg").classList.remove("show"); }
@@ -1016,10 +1020,7 @@
   var FAVORITE_MODELS = [{ match: "openrouter.ai", list: [
     { id: "thedrummer/cydonia-24b-v4.1", label: "⭐ Cydonia 24B v4.1（写作首选/RP）" },
     { id: "cognitivecomputations/dolphin-mistral-24b-venice-edition", label: "Dolphin Mistral 24B（通用首选/无审查）" },
-    { id: "sao10k/l3.3-euryale-70b", label: "Euryale 70B（保底）" },
-    { id: "thedrummer/skyfall-36b-v2", label: "Skyfall 36B v2（RP）" },
-    { id: "anthracite-org/magnum-v4-72b", label: "Magnum v4 72B（RP，较贵）" },
-    { id: "gryphe/mythomax-l2-13b", label: "MythoMax 13B（最便宜）" }
+    { id: "sao10k/l3.3-euryale-70b", label: "Euryale 70B（保底）" }
   ] }];
   function effectiveModelInput() { var v = $("fModelSel").value; return (v && v !== "__custom__") ? v : $("fModel").value.trim(); }
   function refreshModelOptions() {
@@ -1062,11 +1063,13 @@
     return cloudSet(storeKey("api"), cloudApiCopy());
   }
 
-  function saveSettings() { api.baseUrl = $("fBase").value.trim() || DEFAULT_API.baseUrl; api.apiKey = ""; api.model = effectiveModelInput() || DEFAULT_API.model; api.myName = $("fMyName").value.trim(); persistApi(); closeSheets(); toast("已保存"); }
-  function testConn() { var base = $("fBase").value.trim() || DEFAULT_API.baseUrl; var model = effectiveModelInput() || DEFAULT_API.model; if (base.replace(/\/+$/, "") !== DEFAULT_API.baseUrl.replace(/\/+$/, "")) { toast("自定义地址需自备 Key，本版已移除 Key 输入，建议用云端地址"); return; } toast("测试中…"); llmFetchWith({ baseUrl: base, apiKey: "", model: model }, [{ role: "user", content: "连通性测试，请回复：在的" }], false).then(function (r) { return r.json(); }).then(function (j) { if (j.error) { toast("连接失败：" + (typeof j.error === "string" ? j.error : (j.error.message || JSON.stringify(j.error)))); return; } var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; c = cleanReply(c); toast(c ? "连接成功，TA 说：" + c.slice(0, 30) : "连接成功"); }).catch(function () { toast("连接失败：检查网络或 API 地址"); }); }
+  function isCustomBase() { return ($("fBase").value.trim() || DEFAULT_API.baseUrl).replace(/\/+$/, "") !== DEFAULT_API.baseUrl.replace(/\/+$/, ""); }
+  function syncKeyWrap() { $("fKeyWrap").style.display = isCustomBase() ? "" : "none"; }
+  function saveSettings() { api.baseUrl = $("fBase").value.trim() || DEFAULT_API.baseUrl; api.apiKey = isCustomBase() ? $("fKey").value.trim() : ""; api.model = effectiveModelInput() || DEFAULT_API.model; api.myName = $("fMyName").value.trim(); persistApi(); closeSheets(); toast("已保存"); }
+  function testConn() { var base = $("fBase").value.trim() || DEFAULT_API.baseUrl; var model = effectiveModelInput() || DEFAULT_API.model; var key = isCustomBase() ? $("fKey").value.trim() : ""; toast("测试中…"); llmFetchWith({ baseUrl: base, apiKey: key, model: model }, [{ role: "user", content: "连通性测试，请回复：在的" }], false).then(function (r) { return r.json(); }).then(function (j) { if (j.error) { toast("连接失败：" + (typeof j.error === "string" ? j.error : (j.error.message || JSON.stringify(j.error)))); return; } var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; c = cleanReply(c); toast(c ? "连接成功，TA 说：" + c.slice(0, 30) : "连接成功"); }).catch(function () { toast("连接失败：检查网络 / API 地址 / Key"); }); }
   function clearConv() { if (!confirm("清空与「" + active.name + "」的聊天记录和记忆？")) return; messages = []; memorySummary = ""; saveMsgs(); save("mem." + active.id, ""); renderAll(); greetIfEmpty(); closeSheets(); }
 
-  function greetIfEmpty(retried) { if (!(active.persona || "").trim()) return; if (messages.some(function (m) { return m.role === "assistant"; })) return; if (needsKey()) { addMsg("assistant", "（当前地址不可用，点右上角齿轮，换回云端地址就能聊啦。）"); return; } busy = true; updateSend(); showTyping(); var payload = [{ role: "system", content: systemPrompt() }, { role: "user", content: "（这是我们的第一句对话，请你主动打个招呼，自然一点，别太长。）" }]; return detectProxy().then(function () { return llmFetch(payload, false); }).then(function (r) { return r.json(); }).then(function (j) { hideTyping(); var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; addMsg("assistant", cleanReply(c) || "在呢，你来啦。"); }).catch(function () { hideTyping(); if (!retried) return greetIfEmpty(true); addMsg("assistant", "在呢，你来啦。"); }).then(function () { busy = false; updateSend(); }); }
+  function greetIfEmpty(retried) { if (!(active.persona || "").trim()) return; if (messages.some(function (m) { return m.role === "assistant"; })) return; if (needsKey()) { addMsg("assistant", "（自定义地址还差一个 API Key，点右上角齿轮填上，或换回云端地址就能聊啦。）"); return; } busy = true; updateSend(); showTyping(); var payload = [{ role: "system", content: systemPrompt() }, { role: "user", content: "（这是我们的第一句对话，请你主动打个招呼，自然一点，别太长。）" }]; return detectProxy().then(function () { return llmFetch(payload, false); }).then(function (r) { return r.json(); }).then(function (j) { hideTyping(); var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; addMsg("assistant", cleanReply(c) || "在呢，你来啦。"); }).catch(function () { hideTyping(); if (!retried) return greetIfEmpty(true); addMsg("assistant", "在呢，你来啦。"); }).then(function () { busy = false; updateSend(); }); }
 
   function autoGrow() { var el = $("input"); el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 110) + "px"; }
 
@@ -1129,6 +1132,7 @@
   $("mask").addEventListener("click", closeSheets);
   $("btnSave").addEventListener("click", saveSettings);
   $("btnTest").addEventListener("click", testConn);
+  $("fBase").addEventListener("input", syncKeyWrap);
   $("btnClear").addEventListener("click", clearConv);
   $("btnSaveProf").addEventListener("click", saveProfile);
   $("btnAddProf").addEventListener("click", addProfile);
