@@ -1312,13 +1312,17 @@
       trTimer = null;
       if (call.on || chatMode !== "role" || busy || messages.length !== snapLen) return; // 用户已接话/在通话/忙：不打断
       showTyping();
-      var payload = apiMessages();
-      payload.push({ role: "user", content: "（过渡期（" + desc + "）结束了，现在你主动找对方说话，顺着之前的剧情自然开口，几十字内，不要提过渡这件事。）" });
-      llmFetch(payload, false).then(function (r) { return r.json(); }).then(function (j) {
+      var nudge = function (extra) {
+        var payload = apiMessages(true);
+        payload.push({ role: "user", content: "（过渡期（" + desc + "）结束了，对方还没说话，由你主动开口。必须写全新的内容，绝不重复或改写你上一条回复，从新动作、新话题或新提问切入，顺着剧情自然开口，几十字内。）" + (extra || "") });
+        return llmFetch(payload, false).then(function (r) { return r.json(); }).then(function (j) { return cleanReply(j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content); });
+      };
+      nudge("").then(function (c) {
+        if (c && similarToRecent(c)) return nudge("（注意：你刚写的内容和之前说过的重复了，换完全不同的说法和内容走向。）");
+        return c;
+      }).then(function (c) {
         hideTyping();
-        var c = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
-        c = cleanReply(c);
-        if (c) { addMsg("assistant", c); genSuggestions(); }
+        if (c && !similarToRecent(c)) { addMsg("assistant", c); genSuggestions(); }
       }).catch(function () { hideTyping(); });
     }, 60000);
   }
