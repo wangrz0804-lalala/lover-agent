@@ -1,0 +1,2819 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#04050d">
+<title>Pinball Star · 星空弹球</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{
+    margin:0;height:100%;overflow:hidden;
+    background:radial-gradient(circle at 50% 18%,#0c1330 0%,#05060f 55%,#000 100%);
+    font-family:ui-sans-serif,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  }
+  body{display:flex;align-items:center;justify-content:center;}
+  #wrap{position:relative;filter:drop-shadow(0 12px 60px rgba(70,130,255,.28));}
+  canvas{display:block;border-radius:14px;touch-action:none;cursor:pointer;}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c"></canvas></div>
+<script>
+(function(){
+'use strict';
+
+/* ============================================================
+   Pinball Star — single file, no dependencies
+   Table inspired by Space Cadet: ranks, missions, fuel, wormholes.
+   ============================================================ */
+
+const W = 480, H = 800;      // playfield logical size
+const HEAD = 140;            // backglass height
+const CW = W, CH = H + HEAD; // canvas size
+
+const cv  = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+cv.width  = CW * DPR;
+cv.height = CH * DPR;
+ctx.scale(DPR, DPR);
+
+function fit(){
+  const s = Math.min(window.innerWidth / CW, window.innerHeight / CH) * 0.985;
+  cv.style.width  = Math.round(CW * s) + 'px';
+  cv.style.height = Math.round(CH * s) + 'px';
+}
+window.addEventListener('resize', fit);
+fit();
+
+/* ---------------------------- palette ---------------------------- */
+const C = {
+  cyan:'#5ee7ff', blue:'#4a8cff', magenta:'#ff5ecb', gold:'#ffd45e',
+  violet:'#a78bfa', green:'#5ef2b0', red:'#ff5a6e', orange:'#ff9f43',
+  wall:'#1c2650', wallHi:'#7fb0ff',
+  ball:'#eef8ff', text:'#dbe8ff', dim:'#5f7099'
+};
+
+/* ============================================================
+   PLATFORM LAYER
+   The game core is identical on Web and inside WeChat Mini Program; only this block
+   differs. Everything outside it calls PF.* and never touches localStorage / wx.*
+   directly, which is what makes the same file runnable in both hosts.
+   ============================================================ */
+const IS_WX = (typeof wx !== 'undefined' && wx && typeof wx.createRewardedVideoAd === 'function');
+
+const PF = {
+  /* ---------- persistence ---------- */
+  store: {
+    get: function(k, d){
+      try {
+        if (IS_WX) { const v = wx.getStorageSync(k); return (v === '' || v === undefined || v === null) ? d : v; }
+        const v = localStorage.getItem(k);
+        return v === null ? d : v;
+      } catch(e){ return d; }
+    },
+    set: function(k, v){
+      try { if (IS_WX) wx.setStorageSync(k, v); else localStorage.setItem(k, v); } catch(e){}
+    }
+  },
+
+  /* ---------- rewarded video ----------
+     Web has no ad SDK, so it resolves immediately after a short simulated wait;
+     a Mini Program uses the real rewarded-video unit id set in PF.init(). */
+  adUnitId: '',
+  _ad: null,
+  showRewarded: function(onResult){
+    // onResult(granted:boolean)
+    if (!IS_WX){
+      // Web: simulate the interaction so the flow is testable end-to-end
+      setTimeout(function(){ onResult(true); }, 260);
+      return;
+    }
+    if (!PF.adUnitId){ onResult(false); return; }
+    try {
+      if (!PF._ad){
+        PF._ad = wx.createRewardedVideoAd({ adUnitId: PF.adUnitId });
+        PF._ad._cb = null;
+        PF._ad.onClose(function(res){
+          const ok = (res && res.isEnded) || res === undefined;
+          const cb = PF._ad._cb; PF._ad._cb = null;
+          if (cb) cb(!!ok);
+        });
+        PF._ad.onError(function(){ const cb = PF._ad._cb; PF._ad._cb = null; if (cb) cb(false); });
+      }
+      PF._ad._cb = onResult;
+      PF._ad.load()
+        .then(function(){ return PF._ad.show(); })
+        .catch(function(){ const cb = PF._ad._cb; PF._ad._cb = null; if (cb) cb(false); });
+    } catch(e){ onResult(false); }
+  },
+
+  /* ---------- leaderboard ----------
+     Web keeps a local board; a Mini Program would call a cloud function.
+     `submit` then `list` keeps the same shape for both. */
+  leaderboard: {
+    _key: 'ps_board_v1',
+    _all: function(){
+      try {
+        const raw = PF.store.get(PF.leaderboard._key, '[]');
+        return typeof raw === 'string' ? JSON.parse(raw) : raw;
+      } catch(e){ return []; }
+    },
+    _save: function(list){
+      PF.store.set(PF.leaderboard._key, JSON.stringify(list.slice(0, 50)));
+    },
+    submit: function(entry, done){
+      // entry: {name, score, rank, missions, mode, ts}
+      if (IS_WX && typeof wx.cloud !== 'undefined'){
+        try {
+          wx.cloud.callFunction({
+            name: 'submitScore',
+            data: entry,
+            success: function(){ if (done) done(true); },
+            fail: function(){ if (done) done(false); }
+          });
+          return;
+        } catch(e){}
+      }
+      const list = PF.leaderboard._all();
+      list.push(entry);
+      list.sort(function(a, b){ return b.score - a.score; });
+      PF.leaderboard._save(list);
+      if (done) setTimeout(function(){ done(true); }, 40);
+    },
+    list: function(mode, done){
+      if (IS_WX && typeof wx.cloud !== 'undefined'){
+        try {
+          wx.cloud.callFunction({
+            name: 'getBoard',
+            data: { mode: mode },
+            success: function(res){ done((res && res.result && res.result.list) || []); },
+            fail: function(){ done([]); }
+          });
+          return;
+        } catch(e){}
+      }
+      const all = PF.leaderboard._all();
+      const filtered = all.filter(function(e){ return !mode || e.mode === mode; });
+      setTimeout(function(){ done(filtered.slice(0, 20)); }, 40);
+    }
+  },
+
+  /* ---------- share ---------- */
+  share: function(payload){
+    if (IS_WX && typeof wx.shareAppMessage === 'function'){
+      try { wx.shareAppMessage({ title: payload.title, imageUrl: payload.imageUrl || '' }); } catch(e){}
+      return;
+    }
+    // Web: copy a short text so the affordance still does something real
+    const txt = payload.title;
+    try { navigator.clipboard.writeText(txt); } catch(e){}
+  },
+
+  /* ---------- haptics ---------- */
+  vibrate: function(){
+    if (IS_WX && typeof wx.vibrateShort === 'function'){ try { wx.vibrateShort({ type:'light' }); } catch(e){} }
+  },
+
+  init: function(opts){
+    opts = opts || {};
+    if (opts.adUnitId) PF.adUnitId = opts.adUnitId;
+    if (IS_WX && typeof wx.cloud !== 'undefined' && opts.cloudEnv){
+      try { wx.cloud.init({ env: opts.cloudEnv, traceUser: true }); } catch(e){}
+    }
+  }
+};
+
+/* ---------------------------- state ---------------------------- */
+const store = PF.store;
+
+/* Rank ladder, lowest to highest (Space Cadet). */
+const RANKS = [
+  'CADET', 'ENSIGN', 'LIEUTENANT', 'CAPTAIN', 'LT COMMANDER',
+  'COMMANDER', 'COMMODORE', 'ADMIRAL', 'FLEET ADMIRAL'
+];
+const RANK_ZH = [
+  '见习军校生', '少尉', '中尉', '上尉', '少校',
+  '中校', '准将', '上将', '五星上将'
+];
+const RANK_LIGHTS = 4;          // lights in the blue ring
+const LIGHTS_PER_MISSION = 2;   // each mission lights two of them
+
+const state = {
+  score: 0,
+  ballsLeft: 3,
+  mult: 1,
+  stars: [false, false, false],
+  mode: 'ready',            // ready | play | over
+  time: 0,
+  shake: 0,
+  flash: 0,
+  banner: null,
+  muted: false,
+  best: +(store.get('ps_best', 0) || 0),
+
+  rank: 0,                  // index into RANKS
+  rankLights: 0,            // 0..RANK_LIGHTS
+  orangeLights: 0,          // 0..8, filled as ranks are earned
+  missionsDone: 0,
+
+  selected: -1,             // chosen mission slot (0..2) or -1
+  selectedAt: 0,            // when it was chosen, so the ramp can't fire the same frame
+  mission: null,            // {slot, kind, goal, prog, fuel, fuelT, base}
+
+  tilt: 0,                  // seconds of tilt lockout remaining
+  nudge: 0,                 // nudge heat
+  wormCd: [0, 0],           // wormhole cooldown
+  wormArmed: -1,            // which hole was entered last (for pairing)
+  skill: false,             // skill-shot window open
+  skillTier: 0,             // 0..3, how deep the plunge went
+
+  replay: false,            // REPLAY lamp lit -> next drain is saved
+  lanes: [false, false, false],  // three rollover lamps on the top arc
+  bumpersHot: false,        // all three lit -> bumpers score big
+  laneCdArr: [0, 0, 0],     // per-lamp debounce
+  multiball: false,
+  jackpot: 25000,           // grows while multiball runs, paid when it ends
+  blackHoleCharge: 0,       // 0..3, accumulated by repeats in one wormhole
+  endBonus: 0,              // last end-of-ball bonus, shown on the summary
+
+  /* ---- competition / mini-program layer ---- */
+  screen: 'menu',           // menu | play | over | board | revive
+  gameMode: 'classic',      // classic | daily | timed
+  comboT: 0,                // combo window countdown
+  combo: 0,                 // consecutive scoring shots
+  comboBest: 0,
+  reviveUsed: 0,            // rewarded-video revives taken this run
+  revivesAllowed: 2,        // cap per run
+  timeLeft: 0,              // seconds left in a timed run
+  dailySeed: 0,
+  boardMode: 'classic',
+  board: null,              // cached leaderboard rows
+  boardLoading: false,
+  menuSel: 0,               // 0 classic / 1 daily / 2 board
+  overSel: 0,               // 0 revive / 1 restart / 2 board
+  btnRects: [],             // hit areas rebuilt each frame
+  warpLevel: 0,             // WARP progress (0..4) — extra multiplier track
+  pendingSubmit: false
+};
+
+/* ---------------------------- missions ---------------------------- */
+/* Named missions with sequential stages, like the original table ("some missions
+   involve a number of steps which must be completed in sequence"). A mission is a list
+   of stages; only the current stage listens for events, so order is enforced.
+   Goals were measured against a real play loop (a goal of 8 bumpers never finished
+   before fuel ran out at the old 5s/light), so stage goals stay at 2-5. */
+const MISSIONS = [
+  {id:'launch', name:'LAUNCH TRAINING', zh:'发射训练', bonus:8000,
+   stages:[{kind:'bumper', goal:2, zh:'击中缓冲器'}]},
+
+  {id:'target', name:'TARGET PRACTICE', zh:'打靶训练', bonus:12000,
+   stages:[{kind:'bumper', goal:3, zh:'击中缓冲器'},
+           {kind:'post',   goal:2, zh:'击中目标柱'}]},
+
+  {id:'sling', name:'SLINGSHOT DRILL', zh:'弹射器操练', bonus:12000,
+   stages:[{kind:'sling', goal:3, zh:'击中弹射器'},
+           {kind:'worm',  goal:1, zh:'进入虫洞'}]},
+
+  {id:'rescue', name:'RESCUE MISSION', zh:'营救任务', bonus:20000,
+   stages:[{kind:'left',   goal:1, zh:'击打左目标'},
+           {kind:'right',  goal:1, zh:'击打右目标'},
+           {kind:'bumper', goal:2, zh:'返航缓冲器'}]},
+
+  {id:'radiation', name:'SPACE RADIATION', zh:'太空辐射', bonus:18000,
+   stages:[{kind:'worm',  goal:1, zh:'进入虫洞'},
+           {kind:'sling', goal:2, zh:'击中弹射器'}]},
+
+  {id:'warp', name:'TIME WARP', zh:'时间跃迁', bonus:30000,
+   stages:[{kind:'bumper', goal:5, zh:'击中缓冲器'},
+           {kind:'lane',   goal:1, zh:'回到发射坡道'}]}
+];
+
+const FUEL_SEC = 9;   // seconds per fuel light
+
+/* The three slots shown on the table. Which missions they hold depends on rank,
+   so the mission set grows as you climb. */
+/* The three slots shown on the table rotate through the whole mission list as rank
+   climbs, so every mission eventually appears. (A capped shift of 2 meant only the
+   first five missions were ever offered and TIME WARP was unreachable.) */
+function missionSlots(){
+  const shift = state.rank % MISSIONS.length;
+  const out = [];
+  for (let i = 0; i < 3; i++) out.push(MISSIONS[(i + shift) % MISSIONS.length]);
+  return out;
+}
+
+/* ---------------------------- geometry ---------------------------- */
+const WALLS = [];
+function wall(ax, ay, bx, by, r, e){
+  WALLS.push({ax:ax, ay:ay, bx:bx, by:by, r:(r===undefined?6:r), e:(e===undefined?0.45:e)});
+}
+function arcWall(cx, cy, rad, a0, a1, steps){
+  for (let i = 0; i < steps; i++){
+    const t0 = a0 + (a1 - a0) * i / steps;
+    const t1 = a0 + (a1 - a0) * (i + 1) / steps;
+    wall(cx + Math.cos(t0) * rad, cy + Math.sin(t0) * rad,
+         cx + Math.cos(t1) * rad, cy + Math.sin(t1) * rad, 6, 0.45);
+  }
+}
+
+// ---- outer shell (unchanged from the validated build) ----
+wall(24, 636, 24, 264);                             // left outer wall
+arcWall(240, 264, 216, Math.PI, Math.PI * 2, 36);    // top dome
+wall(456, 264, 456, 782);                           // right outer wall
+wall(412, 782, 456, 782);                           // shooter lane floor
+wall(412, 782, 412, 372);                           // shooter lane inner wall
+wall(24, 636, 140, 700);                            // left inlane floor
+wall(412, 636, 340, 700);                           // right inlane floor
+
+// one-way flap at the shooter lane mouth
+const GATE = {ax:404, ay:378, bx:456, by:356};
+
+// flippers (tips rest 46px apart so a ball can always drain)
+// Flipper geometry. Three bugs lived here, all found by testing "hold both flippers":
+//   1. act:-0.245 -> raised tips 6px apart, so a ball rested on them forever.
+//   2. act:-0.75  -> middle opened, but the raked blade plus its own inlane guide form a
+//      V whose apex sits at the pivot. The ball wedged at (335,668) and jittered there
+//      indefinitely — still moving, so a speed-based anti-stuck check never fired.
+//   3. Naively shortening the blade opened the drain so wide the game got trivial.
+// The rule that makes both problems impossible: the raised tip gap must exceed 2*(b.r+8)
+// = 34px so a ball centre always has a path out, and the rest gap should stay near the
+// original 46px for the intended difficulty. Solved here:
+//   rest 0.55 -> 46.5px        raised -0.50 -> 45.5px (passage 22px > 17px required)
+const FLIP_L = {px:140, py:700, len:90, rest:0.55, act:-0.50};
+const FLIP_R = {px:340, py:700, len:90, rest:Math.PI - 0.55, act:Math.PI + 0.50};
+
+// Pivot posts, as on a real table: rounds off the concave corner at each pivot so the
+// ball rolls off it instead of settling into the apex.
+const PIVOTS = [
+  {x:FLIP_L.px, y:FLIP_L.py, r:10},
+  {x:FLIP_R.px, y:FLIP_R.py, r:10}
+];
+
+// slingshot kickers: capsules parallel to the inlane, constant 54px offset
+const SLINGS = [
+  {x1:81,  y1:606, x2:131, y2:633, r:9, pop:0},
+  {x1:356, y1:614, x2:316, y2:649, r:9, pop:0}
+];
+
+const BUMPERS = [
+  {x:240, y:300, r:27, c:C.gold,    pop:0, hits:0},
+  {x:130, y:398, r:27, c:C.cyan,    pop:0, hits:0},
+  {x:350, y:398, r:27, c:C.magenta, pop:0, hits:0}
+];
+const BUMPER_HITS_PER_STAR = 3;
+
+/* Mission targets and lane lamps are ROLLOVERS: pure sensors the ball rolls over, with
+   no collider. This is how the original table does it, and it is the only approach that
+   works here — the ball rides a fixed arc at radius ~216, and anything with a collider
+   on that arc either blocks the orbit or gets skipped. Earlier builds placed these as
+   solid pads at radius ~143, i.e. 70px inside the ball's path, so a real launch could
+   NEVER select a mission (that only looked fine because tests teleported the ball).
+   Both rows sit ON the measured path, interleaved by angle so one orbit sweeps both. */
+const ARC = {cx:240, cy:264, r:212};
+function onArc(deg){ return {x: ARC.cx + Math.cos(deg) * ARC.r, y: ARC.cy + Math.sin(deg) * ARC.r}; }
+
+// angles measured from the real trajectory: ball sweeps about -0.34 .. -2.35 rad
+const MISSION_TARGETS = [
+  {slot:0, pop:0, c:C.cyan},
+  {slot:1, pop:0, c:C.gold},
+  {slot:2, pop:0, c:C.magenta}
+];
+[-0.72, -1.50, -2.18].forEach(function(a, i){
+  const p = onArc(a);
+  MISSION_TARGETS[i].x = p.x;
+  MISSION_TARGETS[i].y = p.y;
+  MISSION_TARGETS[i].ang = a;
+});
+
+const LANE_LAMPS = [-1.10, -1.86, -2.46].map(function(a){
+  const p = onArc(a);
+  return {x:p.x, y:p.y, ang:a};
+});
+
+// scoring posts (ordinary, always lit)
+const POSTS = [
+  {x:74,  y:474, r:10, c:C.violet, pop:0, pts:150},
+  {x:406, y:474, r:10, c:C.violet, pop:0, pts:150}
+];
+
+/* Three rollover lamps for the "bumpers hot" rule, as pure sensors (no collider). They
+   sit just below the mission pads, in the band the ball sweeps on its way down. */
+const LANE_LAMPS_OLD = [
+  {x:170, y:186},
+  {x:240, y:162},
+  {x:310, y:186}
+];
+
+// blue rank ring: lights around the centre (count matches RANK_LIGHTS)
+const RING = {cx:240, cy:496, rad:62};
+const RING_POS = [];
+for (let i = 0; i < RANK_LIGHTS; i++){
+  const a = -Math.PI / 2 + i * (Math.PI * 2 / RANK_LIGHTS);
+  RING_POS.push({x:RING.cx + Math.cos(a) * RING.rad, y:RING.cy + Math.sin(a) * RING.rad});
+}
+
+// wormholes: tucked into the mid-field gaps between posts and ring, far enough
+// from walls and guides that a rolling ball cannot graze an intake by accident
+const WORMS = [
+  {x:150, y:452, r:14, c:C.cyan,   pop:0},
+  {x:330, y:452, r:14, c:C.magenta, pop:0}
+];
+
+// fuel rollovers inside the shooter lane (6 lights, bottom to top)
+const FUEL_N = 6;
+const FUEL_POS = [];
+for (let i = 0; i < FUEL_N; i++) FUEL_POS.push({x:434, y:704 - i * 46});
+
+/* ---------------------------- flippers ---------------------------- */
+function Flipper(px, py, len, rest, active){
+  this.px = px; this.py = py; this.len = len;
+  this.rest = rest; this.active = active;
+  this.angle = rest; this.omega = 0; this.pressed = false;
+}
+Flipper.prototype.update = function(dt){
+  const prev = this.angle;
+  const target = this.pressed ? this.active : this.rest;
+  const spd = this.pressed ? 19 : 12;
+  if (this.angle < target) this.angle = Math.min(target, this.angle + spd * dt);
+  else                     this.angle = Math.max(target, this.angle - spd * dt);
+  this.omega = (this.angle - prev) / dt;
+};
+Flipper.prototype.tip = function(){
+  return {x: this.px + Math.cos(this.angle) * this.len,
+          y: this.py + Math.sin(this.angle) * this.len};
+};
+
+const leftF  = new Flipper(FLIP_L.px, FLIP_L.py, FLIP_L.len, FLIP_L.rest, FLIP_L.act);
+const rightF = new Flipper(FLIP_R.px, FLIP_R.py, FLIP_R.len, FLIP_R.rest, FLIP_R.act);
+
+/* ---------------------------- balls ---------------------------- */
+const balls = [];
+function spawnBall(x, y, vx, vy){
+  const b = {x:x, y:y, vx:(vx||0), vy:(vy||0), r:9, trail:[], stuck:0, tries:0, hiT:0,
+             zg:{x:x, y:y, t:0, n:0}, live:true};
+  balls.push(b);
+  return b;
+}
+
+const GRAV = 880;
+const MAXSPD = 1550;
+
+/* ---------------------------- audio ---------------------------- */
+let actx = null;
+function ac(){
+  if (!actx){
+    try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){ actx = null; }
+  }
+  if (actx && actx.state === 'suspended') actx.resume();
+  return actx;
+}
+function tone(freq, dur, type, vol, f2, delay){
+  if (state.muted) return;
+  const a = ac(); if (!a) return;
+  const t0 = a.currentTime + (delay || 0);
+  const o = a.createOscillator(), g = a.createGain();
+  o.type = type || 'sine';
+  o.frequency.setValueAtTime(freq, t0);
+  if (f2) o.frequency.exponentialRampToValueAtTime(Math.max(20, f2), t0 + dur);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.linearRampToValueAtTime(vol || 0.07, t0 + 0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g); g.connect(a.destination);
+  o.start(t0); o.stop(t0 + dur + 0.03);
+}
+const sfx = {
+  bumper: function(i){ tone(520 + i * 90, 0.12, 'square', 0.045, 900 + i * 120); },
+  sling:  function(){ tone(300, 0.09, 'sawtooth', 0.035, 520); },
+  flip:   function(){ tone(150, 0.05, 'triangle', 0.035, 90); },
+  launch: function(){ tone(180, 0.28, 'sine', 0.07, 900); },
+  drain:  function(){ tone(320, 0.5, 'sine', 0.08, 60); },
+  star:   function(){ [0,80,160,240].forEach(function(d,i){ tone(660 + i*220, 0.16, 'sine', 0.06, null, d/1000); }); },
+  over:   function(){ [440,330,247,165].forEach(function(f,i){ tone(f, 0.32, 'triangle', 0.07, f*0.85, i*0.13); }); },
+  select: function(){ tone(760, 0.07, 'square', 0.04, 980); },
+  start:  function(){ [0,70,140].forEach(function(d,i){ tone(392 + i*98, 0.18, 'triangle', 0.06, null, d/1000); }); },
+  fuel:   function(){ tone(900, 0.05, 'sine', 0.03, 1200); },
+  worm:   function(){ tone(120, 0.3, 'sine', 0.07, 1400); },
+  multi:  function(){ [0,90,180,270].forEach(function(d,i){ tone(523 + i*131, 0.22, 'square', 0.05, null, d/1000); }); },
+  rank:   function(){ [0,110,220,330,440].forEach(function(d,i){ tone(392 + i*196, 0.26, 'triangle', 0.065, null, d/1000); }); },
+  tilt:   function(){ tone(120, 0.6, 'sawtooth', 0.08, 60); },
+  nudge:  function(){ tone(90, 0.08, 'triangle', 0.04, 70); }
+};
+
+/* ---------------------------- particles / fx ---------------------------- */
+const parts = [];
+const pops  = [];
+function burst(x, y, color, n, spd){
+  for (let i = 0; i < n; i++){
+    const a = Math.random() * Math.PI * 2;
+    const s = (spd || 200) * (0.3 + Math.random() * 0.9);
+    parts.push({x:x, y:y, vx:Math.cos(a)*s, vy:Math.sin(a)*s,
+                life:1, max:0.5 + Math.random()*0.5, c:color,
+                r:1.5 + Math.random()*2.5});
+  }
+  if (parts.length > 320) parts.splice(0, parts.length - 320);
+}
+function popText(x, y, text, color){
+  pops.push({x:x, y:y, text:text, c:color || C.gold, life:1, vy:-52});
+  if (pops.length > 24) pops.shift();
+}
+
+/* ---------------------------- scoring ---------------------------- */
+function addScore(n, x, y, color){
+  const v = Math.round(n * state.mult);
+  state.score += v;
+
+  /* COMBO: every scoring hit inside a 2.2s window stacks; the stack feeds WARP and the
+     displayed multiplier. This is the "one more shot" pull the reference table has. */
+  if (n >= 60){
+    state.combo++;
+    state.comboT = 2.2;
+    if (state.combo > state.comboBest) state.comboBest = state.combo;
+    if (state.combo > 0 && state.combo % 8 === 0 && state.warpLevel < 4){
+      state.warpLevel++;
+      state.mult = Math.min(9, state.mult + 1);
+      state.banner = {t:1.5, text:'WARP ' + state.warpLevel, sub:'倍率 ×' + state.mult};
+      sfx.rank();
+      state.flash = 0.6;
+    }
+  }
+
+  if (state.score > state.best){
+    state.best = state.score;
+    store.set('ps_best', state.best);
+  }
+  if (x !== undefined) popText(x, y, '+' + v, color);
+}
+
+function lightStar(idx){
+  if (state.stars[idx]) return;
+  state.stars[idx] = true;
+  if (state.stars[0] && state.stars[1] && state.stars[2]){
+    addScore(5000);
+    state.mult = Math.min(5, state.mult + 1);
+    state.stars = [false, false, false];
+    state.banner = {t:1.6, text:'★ STAR BONUS ★', sub:'倍率 ×' + state.mult};
+    state.flash = 1;
+    state.shake = 12;
+    sfx.star();
+    burst(240, 400, C.gold, 40, 420);
+    missionProgress('star');
+  }
+}
+
+/* ---------------------------- mission engine ---------------------------- */
+function selectMission(slot){
+  if (state.mission) return;              // a mission is already running
+  if (slot < 0 || slot >= 3) return;      // only three mission targets exist
+  state.selected = slot;
+  state.selectedAt = state.time;
+  const def = missionSlots()[slot];
+  if (!def) return;
+  state.banner = {t:1.4, text:'任务已选定', sub:def.name};
+  sfx.select();
+  burst(MISSION_TARGETS[slot].x, MISSION_TARGETS[slot].y, MISSION_TARGETS[slot].c, 12, 200);
+}
+
+function startMission(){
+  if (state.selected < 0 || state.mission) return false;
+  const def = missionSlots()[state.selected];
+  if (!def){ state.selected = -1; return false; }
+  state.mission = {
+    slot: state.selected,
+    def: def,
+    stage: 0,
+    prog: 0,
+    fuel: FUEL_N,
+    fuelT: 0
+  };
+  state.selected = -1;
+  state.banner = {t:1.8, text:'任务开始', sub:def.name};
+  sfx.start();
+  state.flash = 0.7;
+  return true;
+}
+
+/* the stage the running mission is currently on, or null */
+function stageNow(){
+  const m = state.mission;
+  if (!m) return null;
+  return m.def.stages[m.stage] || null;
+}
+
+/* An event fired. Only the CURRENT stage listens, which is what makes stages ordered. */
+function missionProgress(kind, amount){
+  const m = state.mission;
+  const st = stageNow();
+  if (!m || !st || st.kind !== kind) return;
+  m.prog += (amount === undefined ? 1 : amount);
+  if (m.prog >= st.goal) advanceStage();
+}
+
+function advanceStage(){
+  const m = state.mission;
+  if (!m) return;
+  const done = m.def.stages[m.stage];
+  m.stage++;
+  m.prog = 0;
+  const next = stageNow();
+  if (!next){ completeMission(); return; }
+
+  addScore(1500 * m.stage);
+  state.banner = {t:1.5, text:'阶段完成', sub:done.zh + ' → ' + next.zh};
+  sfx.select();
+  burst(240, 330, C.cyan, 14, 240);
+  state.shake = 5;
+}
+
+function completeMission(){
+  const m = state.mission;
+  state.mission = null;
+  state.missionsDone++;
+  state.rankLights += LIGHTS_PER_MISSION;
+
+  const bonus = m.def.bonus + state.rank * 12000;
+  addScore(bonus);
+
+  // The original grants a REPLAY (a ball save, not just points) on mission completion.
+  grantReplay();
+
+  state.banner = {t:2.0, text:'任务完成', sub:m.def.name + '  +' + bonus};
+  state.flash = 1;
+  state.shake = 10;
+  sfx.rank();
+  burst(240, 300, C.green, 34, 380);
+
+  if (state.rankLights >= RANK_LIGHTS) promote();
+  else popText(240, 330, '⊙ ' + state.rankLights + '/' + RANK_LIGHTS, C.blue);
+}
+
+/* REPLAY: the red lamp. While lit, a drained ball is returned and the mission survives. */
+function grantReplay(){
+  state.replay = true;
+  var el = document.getElementById('replayLamp');
+  if (el) el.classList.add('on');
+}
+
+function promote(){
+  state.rankLights = 0;
+  if (state.rank < RANKS.length - 1){
+    state.rank++;
+    state.orangeLights = state.rank;
+    state.banner = {t:2.2, text:'晋升  ' + RANKS[state.rank], sub:RANK_ZH[state.rank]};
+    sfx.rank();
+    state.flash = 1;
+    state.shake = 14;
+    burst(240, 260, C.orange, 46, 440);
+  } else {
+    state.orangeLights = 8;
+    state.banner = {t:2.2, text:'FLEET ADMIRAL ★', sub:'最高军衔已达成'};
+    state.flash = 1;
+    sfx.rank();
+  }
+}
+
+function abortMission(reason){
+  const m = state.mission;
+  if (!m) return;
+  state.mission = null;
+  state.banner = {t:1.6, text:'任务中止', sub:m.def.name + ' · ' + reason};
+  tone(200, 0.4, 'triangle', 0.06, 90);
+}
+
+/* ---------------------------- collisions ---------------------------- */
+/* Real bumpers never reflect perfectly. A tiny random tangential component is added
+   to every kick; without it a ball can settle into a stable vertical loop between two
+   opposed objects (observed: centre bumper <-> centre mission target) and score
+   forever without ever coming down. */
+function jitter(b, amount){
+  const ang = (Math.random() - 0.5) * amount;
+  const cs = Math.cos(ang), sn = Math.sin(ang);
+  const vx = b.vx * cs - b.vy * sn;
+  const vy = b.vx * sn + b.vy * cs;
+  b.vx = vx; b.vy = vy;
+}
+
+function resolveSeg(b, ax, ay, bx, by, sr, e){
+  const abx = bx - ax, aby = by - ay;
+  const L2 = abx * abx + aby * aby || 1;
+  let t = ((b.x - ax) * abx + (b.y - ay) * aby) / L2;
+  t = t < 0 ? 0 : (t > 1 ? 1 : t);
+  const px = ax + abx * t, py = ay + aby * t;
+  let nx = b.x - px, ny = b.y - py;
+  let d = Math.sqrt(nx*nx + ny*ny);
+  const minD = b.r + sr;
+  if (d >= minD) return null;
+  if (d < 0.0001){ nx = 0; ny = -1; } else { nx /= d; ny /= d; }
+  b.x = px + nx * minD;
+  b.y = py + ny * minD;
+  const vn = b.vx * nx + b.vy * ny;
+  if (vn < 0){
+    b.vx -= (1 + e) * vn * nx;
+    b.vy -= (1 + e) * vn * ny;
+    return {nx:nx, ny:ny, px:px, py:py, vn:vn};
+  }
+  return null;
+}
+
+function resolveCirc(b, cx, cy, cr, e){
+  let nx = b.x - cx, ny = b.y - cy;
+  let d = Math.sqrt(nx*nx + ny*ny);
+  const minD = b.r + cr;
+  if (d >= minD) return null;
+  if (d < 0.0001){ nx = 0; ny = -1; } else { nx /= d; ny /= d; }
+  b.x = cx + nx * minD;
+  b.y = cy + ny * minD;
+  const vn = b.vx * nx + b.vy * ny;
+  if (vn < 0){
+    b.vx -= (1 + e) * vn * nx;
+    b.vy -= (1 + e) * vn * ny;
+    return {nx:nx, ny:ny, px:cx + nx*cr, py:cy + ny*cr, vn:vn};
+  }
+  return null;
+}
+
+function resolveBox(b, t){
+  // axis-aligned box (rounded look, square collision) for mission targets
+  const hw = t.w / 2, hh = t.h / 2;
+  const lx = Math.max(t.x - hw, Math.min(t.x + hw, b.x));
+  const ly = Math.max(t.y - hh, Math.min(t.y + hh, b.y));
+  let nx = b.x - lx, ny = b.y - ly;
+  let d = Math.sqrt(nx*nx + ny*ny);
+  if (d > b.r) return null;
+  if (d < 0.0001){
+    // centre inside the box: push out along the shallowest axis
+    const dx = b.x - t.x, dy = b.y - t.y;
+    if (Math.abs(dx) / hw > Math.abs(dy) / hh){ nx = dx > 0 ? 1 : -1; ny = 0; }
+    else { nx = 0; ny = dy > 0 ? 1 : -1; }
+    b.x = t.x + nx * (hw + b.r);
+    b.y = t.y + ny * (hh + b.r);
+  } else {
+    nx /= d; ny /= d;
+    b.x = lx + nx * b.r;
+    b.y = ly + ny * b.r;
+  }
+  const vn = b.vx * nx + b.vy * ny;
+  if (vn < 0){
+    b.vx -= 1.5 * vn * nx;
+    b.vy -= 1.5 * vn * ny;
+    return {nx:nx, ny:ny, px:lx, py:ly};
+  }
+  return null;
+}
+
+function flipperCollide(b, f){
+  const tip = f.tip();
+  const abx = tip.x - f.px, aby = tip.y - f.py;
+  const L2 = abx*abx + aby*aby || 1;
+  let t = ((b.x - f.px) * abx + (b.y - f.py) * aby) / L2;
+  t = t < 0 ? 0 : (t > 1 ? 1 : t);
+  const px = f.px + abx * t, py = f.py + aby * t;
+  let nx = b.x - px, ny = b.y - py;
+  let d = Math.sqrt(nx*nx + ny*ny);
+  // visual flipper half-thickness is 8.5 (stroke 17); keep the collider just inside it
+  const minD = b.r + 8;
+  if (d >= minD) return;
+  if (d < 0.0001){ nx = 0; ny = -1; } else { nx /= d; ny /= d; }
+  b.x = px + nx * minD;
+  b.y = py + ny * minD;
+
+  const rx = px - f.px, ry = py - f.py;
+  const pvx = -f.omega * ry * 0.65;
+  const pvy =  f.omega * rx * 0.65;
+  const rvx = b.vx - pvx, rvy = b.vy - pvy;
+  const vn = rvx * nx + rvy * ny;
+  if (vn < 0){
+    const j = -(1 + 0.35) * vn;
+    b.vx += j * nx;
+    b.vy += j * ny;
+  }
+  if (f.pressed && Math.abs(f.omega) > 3){
+    const k = Math.min(1, Math.abs(f.omega) / 19);
+    b.vx += nx * 240 * k;
+    b.vy += ny * 240 * k;
+  }
+}
+
+/* ---------------------------- wormholes ---------------------------- */
+function enterWorm(i){
+  const w = WORMS[i];
+  w.pop = 1;
+  addScore(state.bumpersHot ? 2000 : 750, w.x, w.y - 26, w.c);
+  burst(w.x, w.y, w.c, 16, 260);
+  sfx.worm();
+  state.shake = 6;
+  missionProgress('worm', 1);
+
+  if (state.wormArmed === -1){
+    state.wormArmed = i;                       // first lock: this colour is armed
+    popText(w.x, w.y - 44, 'LOCKED', w.c);
+    sfx.fuel();
+    return;
+  }
+  if (state.wormArmed !== i){
+    state.wormArmed = -1;                      // opposite colour = match -> multiball
+    startMultiball();
+    return;
+  }
+  // same hole again: feeds the black hole instead
+  state.blackHoleCharge = Math.min(3, state.blackHoleCharge + 1);
+  popText(w.x, w.y - 44, 'SAME ' + state.blackHoleCharge + '/3', w.c);
+  if (state.blackHoleCharge >= 3){
+    state.blackHoleCharge = 0;
+    addScore(50000, RING.cx, RING.cy, C.violet);
+    state.banner = {t:1.8, text:'BLACK HOLE', sub:'+50000'};
+    state.flash = 1;
+    sfx.star();
+    burst(RING.cx, RING.cy, C.violet, 40, 400);
+  }
+}
+
+function startMultiball(){
+  state.multiball = true;
+  state.banner = {t:1.8, text:'MULTIBALL', sub:'三球同场 · JACKPOT ' + state.jackpot};
+  state.flash = 1;
+  state.shake = 12;
+  sfx.multi();
+  if (balls.length < 3){
+    for (let k = 0; k < 2; k++) spawnBall(240, 500, (k ? 150 : -150), -420);
+  }
+}
+
+/* Rollover lamp: light it and keep it lit; all three lit = bumpers hot. (The original
+   toggles a lamp off when you pass again, but here one orbit crosses all three within a
+   fraction of a second, so toggling made the goal unreachable by skill.) */
+function hitLane(i){
+  if (state.laneCdArr[i] > 0) return;
+  state.laneCdArr[i] = 0.4;
+  if (state.lanes[i]) return;
+
+  state.lanes[i] = true;
+  addScore(1000, LANE_LAMPS[i].x, LANE_LAMPS[i].y, C.cyan);
+  sfx.fuel();
+  burst(LANE_LAMPS[i].x, LANE_LAMPS[i].y, C.cyan, 8, 160);
+
+  if (state.lanes[0] && state.lanes[1] && state.lanes[2] && !state.bumpersHot){
+    state.bumpersHot = true;
+    state.banner = {t:1.8, text:'BUMPERS HOT', sub:'缓冲器升温 · 分值提升'};
+    state.flash = 0.8;
+    sfx.rank();
+  }
+}
+
+/* ---------------------------- nudge / tilt ---------------------------- */
+function nudge(dir){
+  if (state.mode !== 'play') return;
+  ac();
+  if (state.tilt > 0) return;
+  state.nudge += 1;
+  for (let i = 0; i < balls.length; i++){
+    balls[i].vx += dir * 130;
+    balls[i].vy -= 80;
+  }
+  state.shake = 7;
+  sfx.nudge();
+  if (state.nudge >= 3){
+    state.nudge = 0;
+    state.tilt = 3.0;
+    leftF.pressed = false;
+    rightF.pressed = false;
+    state.banner = {t:1.8, text:'TILT', sub:'推桌过度 · 挡板 3 秒失效'};
+    sfx.tilt();
+    state.shake = 14;
+  }
+}
+
+/* ---------------------------- game flow ---------------------------- */
+function resetBall(){
+  balls.length = 0;
+  spawnBall(434, 754, 0, 0);
+  // lamps are a per-ball objective, so they reset with each new ball
+  state.lanes = [false, false, false];
+  state.bumpersHot = false;
+  state.laneCdArr = [0, 0, 0];
+}
+/* ---------------------------- run lifecycle (competition layer) ---------------------------- */
+/* A run ends when the last ball drains or the challenge clock hits zero. The score is
+   submitted to the board on end, and a revive (rewarded video) is offered if the run
+   died with an ad slot still available. */
+function endRun(){
+  if (state.mode === 'over') return;
+  state.mode = 'over';
+  state.screen = 'over';
+  state.overSel = (state.reviveUsed < state.revivesAllowed) ? 0 : 1;
+  balls.length = 0;
+  sfx.over();
+  submitScore();
+}
+
+function submitScore(){
+  if (state.pendingSubmit) return;
+  state.pendingSubmit = true;
+  const entry = {
+    name: (PF.store.get('ps_name', '') || 'PLAYER'),
+    score: state.score,
+    rank: state.rank,
+    missions: state.missionsDone,
+    mode: state.gameMode,
+    ts: Date.now()
+  };
+  PF.leaderboard.submit(entry, function(ok){
+    // release the guard once the network op settles, so a later run (or a revive that
+    // ends again) can submit again. Leaving it latched silently dropped every score
+    // after the first run of a session.
+    state.pendingSubmit = false;
+    if (ok && state.gameMode === 'daily'){
+      PF.store.set('ps_daily_' + todayKey(), String(state.score));
+    }
+  });
+}
+
+/* Rewarded-video revive: +1 ball, mission state preserved, capped per run so it is a
+   救急 而不是无限续命（否则榜单会被刷爆）。 */
+function revive(){
+  if (state.reviveUsed >= state.revivesAllowed){ return false; }
+  state.reviveUsed++;
+  state.mode = 'ready';
+  state.screen = 'play';
+  state.ballsLeft = Math.max(1, state.ballsLeft + 1);
+  state.overSel = 0;
+  state.pendingSubmit = false;
+  resetBall();
+  state.banner = {t:1.8, text:'REVIVED', sub:'+1 球 · 继续冲榜'};
+  state.flash = 0.9;
+  state.shake = 8;
+  sfx.start();
+  // extend the challenge clock a little so the revive is actually usable
+  if (state.gameMode === 'daily') state.timeLeft = Math.max(state.timeLeft, 30);
+  return true;
+}
+
+function requestRevive(){
+  if (state.reviveUsed >= state.revivesAllowed){ return; }
+  PF.showRewarded(function(granted){
+    if (granted) revive();
+    else { state.banner = {t:1.8, text:'未获得奖励', sub:'完整观看视频才能复活'}; }
+  });
+}
+
+/* Demo build: the rewarded-video entry is not wired into the UI. Only the WeChat build
+   shows it (see wx-miniprogram/), so the public demo exposes no ad surface. */
+
+function restart(mode){
+  state.gameMode = mode || 'classic';
+  state.score = 0;
+  state.ballsLeft = state.gameMode === 'daily' ? 1 : 3;
+  state.mult = 1;
+  state.stars = [false, false, false];
+  state.banner = null; state.flash = 0; state.shake = 0;
+  state.rank = 0; state.rankLights = 0; state.orangeLights = 0;
+  state.missionsDone = 0;
+  state.selected = -1; state.mission = null;
+  state.tilt = 0; state.nudge = 0; state.wormArmed = -1;
+  state.wormCd = [0, 0];
+  state.skillTier = 0;
+  state.replay = false;
+  state.multiball = false;
+  state.jackpot = 25000;
+  state.blackHoleCharge = 0;
+  state.endBonus = 0;
+  state.combo = 0; state.comboT = 0; state.comboBest = 0;
+  state.reviveUsed = 0;
+  state.warpLevel = 0;
+  state.pendingSubmit = false;
+  state.timeLeft = state.gameMode === 'daily' ? 90 : 0;
+  var rl = document.getElementById('replayLamp');
+  if (rl) rl.classList.remove('on');
+  resetBall();
+  state.mode = 'ready';
+  state.screen = 'play';
+}
+function launch(){
+  if (state.mode !== 'ready') return;
+  ac();
+  const b = balls[0];
+  if (!b) return;
+  b.vx = 0;
+  b.vy = -1500;
+  state.mode = 'play';
+  state.skill = true;
+  sfx.launch();
+  burst(434, 770, C.blue, 10, 160);
+}
+function primary(){
+  ac();
+  if (state.screen === 'menu') { restart('classic'); return; }
+  if (state.screen === 'board') { state.screen = state.mode === 'over' ? 'over' : 'menu'; return; }
+  if (state.screen === 'over'){ restart(state.gameMode); return; }
+  if (state.mode === 'ready') launch();
+}
+function ballLost(){
+  // REPLAY (ball save): the original returns the ball rather than consuming it, and
+  // importantly does NOT abort the running mission.
+  if (state.replay){
+    state.replay = false;
+    var lamp = document.getElementById('replayLamp');
+    if (lamp) lamp.classList.remove('on');
+    state.banner = {t:1.6, text:'REPLAY', sub:'球保生效 · 任务继续'};
+    state.flash = 0.7;
+    sfx.fuel();
+    resetBall();
+    state.mode = 'ready';
+    return;
+  }
+
+  sfx.drain();
+  state.shake = 8;
+  state.mult = 1;
+  state.stars = [false, false, false];
+  state.ballsLeft--;
+
+  // END-OF-BALL BONUS, as the original pays on every drain. Scaled by rank, by missions
+  // completed and by lit lamps, so a productive ball is worth more than a passive one.
+  {
+    const litLamps = state.lanes.filter(Boolean).length;
+    const bonus = Math.round((5000 + state.rank * 2500) *
+                             (1 + state.missionsDone * 0.25) *
+                             Math.max(1, litLamps));
+    addScore(bonus);
+    state.endBonus = bonus;
+    popText(240, 620, 'BONUS +' + bonus, C.gold);
+    tone(660, 0.16, 'sine', 0.05);
+  }
+
+  if (state.mission) abortMission('球已出局');
+  state.wormArmed = -1;
+  state.multiball = false;
+  if (state.ballsLeft <= 0){
+    state.ballsLeft = 0;
+    endRun();
+  } else {
+    resetBall();
+    state.mode = 'ready';
+  }
+}
+
+/* ---------------------------- per-ball physics ---------------------------- */
+function stepBall(b, dt){
+  b.trail.push({x:b.x, y:b.y});
+  if (b.trail.length > 14) b.trail.shift();
+
+  b.vy += GRAV * dt;
+  const drag = 1 - 0.10 * dt;
+  b.vx *= drag; b.vy *= drag;
+  b.x += b.vx * dt;
+  b.y += b.vy * dt;
+
+  for (let iter = 0; iter < 2; iter++){
+    for (let i = 0; i < WALLS.length; i++){
+      const w = WALLS[i];
+      resolveSeg(b, w.ax, w.ay, w.bx, w.by, w.r, w.e);
+    }
+    for (let i = 0; i < SLINGS.length; i++){
+      const s = SLINGS[i];
+      const hit = resolveSeg(b, s.x1, s.y1, s.x2, s.y2, s.r, 0.62);
+      if (hit && iter === 0){
+        s.pop = 1;
+        b.vx += hit.nx * 350;
+        b.vy += hit.ny * 350;
+        jitter(b, 0.34);
+        addScore(30, hit.px, hit.py, C.violet);
+        burst(hit.px, hit.py, C.violet, 9, 250);
+        state.shake = 4;
+        sfx.sling();
+        missionProgress('sling', 1);
+      }
+    }
+    for (let i = 0; i < BUMPERS.length; i++){
+      const bp = BUMPERS[i];
+      const hit = resolveCirc(b, bp.x, bp.y, bp.r, 0.5);
+      if (hit && iter === 0){
+        bp.pop = 1;
+        b.vx += hit.nx * 250;
+        b.vy += hit.ny * 250;
+        jitter(b, 0.40);
+        addScore(state.bumpersHot ? 400 : 40, bp.x, bp.y - bp.r - 8, bp.c);
+        bp.hits++;
+        if (bp.hits % BUMPER_HITS_PER_STAR === 0) lightStar(i);
+        burst(hit.px, hit.py, bp.c, 12, 300);
+        state.shake = 6;
+        sfx.bumper(i);
+        missionProgress('bumper', 1);
+      }
+    }
+    for (let i = 0; i < POSTS.length; i++){
+      const tg = POSTS[i];
+      const hit = resolveCirc(b, tg.x, tg.y, tg.r, 0.62);
+      if (hit && iter === 0){
+        tg.pop = 1;
+        b.vx += hit.nx * 170;
+        b.vy += hit.ny * 170;
+        addScore(60, tg.x, tg.y - tg.r - 8, tg.c);
+        burst(hit.px, hit.py, tg.c, 7, 190);
+        sfx.sling();
+        missionProgress('post', 1);
+        // rescue-mission stages name a side explicitly
+        missionProgress(i === 0 ? 'left' : 'right', 1);
+      }
+    }
+    for (let i = 0; i < MISSION_TARGETS.length; i++){
+      const mt = MISSION_TARGETS[i];
+      if (mt.cd > 0) continue;
+      const ddx = b.x - mt.x, ddy = b.y - mt.y;
+      if (ddx * ddx + ddy * ddy < 20 * 20){
+        mt.cd = 1.0;
+        mt.pop = 1;
+        addScore(100, mt.x, mt.y + 22, mt.c);
+        burst(b.x, b.y, mt.c, 10, 200);
+        sfx.select();
+        selectMission(mt.slot);
+      }
+    }
+    flipperCollide(b, leftF);
+    flipperCollide(b, rightF);
+
+    // pivot posts (also rounds the concave corner that used to trap the ball)
+    for (let i = 0; i < PIVOTS.length; i++){
+      const pv = PIVOTS[i];
+      resolveCirc(b, pv.x, pv.y, pv.r, 0.35);
+    }
+
+    // one-way gate: only blocks a ball trying to fall back down into the lane
+    if (iter === 0 && b.vy > 0){
+      const gx = b.x - GATE.ax, gy = b.y - GATE.ay;
+      const gdx = GATE.bx - GATE.ax, gdy = GATE.by - GATE.ay;
+      const gl2 = gdx * gdx + gdy * gdy;
+      // guard against a degenerate gate
+      const gt = gl2 > 0 ? (gx * gdx + gy * gdy) / gl2 : 0;
+      if (gt > -0.15 && gt < 1.2){
+        resolveSeg(b, GATE.ax, GATE.ay, GATE.bx, GATE.by, 5, 0.1);
+      }
+    }
+  }
+
+  const sp = Math.sqrt(b.vx*b.vx + b.vy*b.vy);
+  if (sp > MAXSPD){ b.vx = b.vx / sp * MAXSPD; b.vy = b.vy / sp * MAXSPD; }
+
+  // wormholes (centre-based trigger with cooldown)
+  for (let i = 0; i < WORMS.length; i++){
+    const w = WORMS[i];
+    if (state.wormCd[i] > 0) continue;
+    const dx = b.x - w.x, dy = b.y - w.y;
+    if (dx*dx + dy*dy < (w.r * 0.7) * (w.r * 0.7)){
+      state.wormCd[i] = 1.5;
+      enterWorm(i);
+      // spit the ball back out toward the centre so it never stops inside
+      b.x = w.x; b.y = w.y - 4;
+      b.vx = (240 - w.x) * 0.9;
+      b.vy = -420;
+      b.trail.length = 0;
+      break;
+    }
+  }
+
+  // SKILL SHOT, tiered like the original (15k / 40k / 75k by how deep the plunge went).
+  if (state.skill){
+    if (b.vy > 0 && b.y < 300 && state.skillTier === 0){
+      state.skillTier = b.y < 120 ? 3 : (b.y < 190 ? 2 : 1);
+    }
+    if (b.y > 300){
+      state.skill = false;
+      if (state.skillTier > 0){
+        const pts = state.skillTier === 3 ? 75000 : (state.skillTier === 2 ? 40000 : 15000);
+        addScore(pts, b.x, b.y - 20, C.gold);
+        if (state.skillTier === 3){
+          state.banner = {t:1.6, text:'PERFECT SKILL SHOT', sub:'+75000'};
+          state.shake = 8;
+        } else {
+          popText(b.x, b.y - 38, 'SKILL SHOT +' + pts, C.gold);
+        }
+        state.flash = 0.5;
+        sfx.fuel();
+      }
+      state.skillTier = 0;
+    }
+  }
+
+  // three rollover lamps: passing over one lights it; all three light the bumpers.
+  // Detection is proximity to the lamp position with a generous radius, so a fast ball
+  // cannot slip past between frames.
+  for (let i = 0; i < 3; i++){
+    if (state.laneCdArr[i] > 0) state.laneCdArr[i] = Math.max(0, state.laneCdArr[i] - dt);
+  }
+  for (let i = 0; i < 3; i++){
+    const L = LANE_LAMPS[i];
+    const ldx = b.x - L.x, ldy = b.y - L.y;
+    if (ldx * ldx + ldy * ldy < 30 * 30) hitLane(i);
+  }
+
+  // "lane" stage (time warp): send the ball back up the shooter lane to finish
+  {
+    const st = stageNow();
+    if (st && st.kind === 'lane' && b.x > 412 && b.y < 700) missionProgress('lane', 1);
+  }
+
+  // launch-ramp = mission start. "Going up the ramp" is modelled as the ball reaching
+// the upper arc after a mission has been selected, because in normal play the ball
+// almost never re-enters the shooter lane — requiring that made missions unstartable.
+// Accept the selected mission. Originally this required the ball to reach the very top
+// band again, which in practice almost never happened within one ball — the selection
+// just sat there and expired. Reaching the upper half of the table counts as "going up
+// the ramp", which is the intent (you commit by sending the ball back up).
+  if (state.selected >= 0 && !state.mission && state.selectedAt > 0 &&
+      state.selectedAt < state.time - 0.8 && b.y < 380){
+    if (startMission()) state.shake = 8;
+  }
+
+  // fuel rollovers inside the lane
+  if (b.x > 412 && b.vy < 0 && b.y > 380 && b.y < 730){
+    if (state.mission && state.mission.fuel < FUEL_N){
+      state.mission.fuel = FUEL_N;
+      sfx.fuel();
+      burst(434, b.y, C.green, 6, 140);
+    }
+  }
+
+  // repeated-traversal guard: if the ball keeps crossing the same band without ever
+// descending, break the cycle. Catches endless loops that are stable but not static
+// (the anti-stuck check below only fires on a motionless ball).
+  if (state.mode === 'play'){
+    if (b.y < 260){
+      b.hiT = (b.hiT || 0) + dt;
+      if (b.hiT > 4.5){
+        b.hiT = 0;
+        b.vy = Math.abs(b.vy) * 0.5 + 260;   // push it down and outward
+        b.vx += (b.x < 240 ? 1 : -1) * 120;
+        jitter(b, 0.5);
+        state.shake = 5;
+      }
+    } else {
+      b.hiT = 0;
+    }
+  }
+
+  // ZONE GUARD. The wedge that trapped the ball at the flipper pivot kept jittering in
+// place, so a speed-based test never fired: it was moving, just not going anywhere.
+// This tracks how long the ball stays inside a small box AND below the flipper line,
+// which is exactly the shape of that failure. Escalates like the static check.
+if (state.mode === 'play' && b.y > 600){
+    if (!b.zg){ b.zg = {x:b.x, y:b.y, t:0, n:0}; }
+    const g = b.zg;
+    const moved = Math.abs(b.x - g.x) + Math.abs(b.y - g.y);
+    if (moved > 46){
+      g.x = b.x; g.y = b.y; g.t = 0;
+    } else {
+      g.t += dt;
+      if (g.t > 2.6){
+        g.t = 0;
+        g.n++;
+        if (g.n <= 2){
+          // shove it up and toward the middle of the table
+          b.vx = (240 - b.x) * 3 + (Math.random() - 0.5) * 90;
+          b.vy = -(600 + g.n * 130);
+          state.shake = 6;
+        } else {
+          b.x = 240; b.y = 470; b.vx = 0; b.vy = -300;
+          g.n = 0;
+          burst(240, 470, C.cyan, 12, 220);
+        }
+      }
+    }
+  } else if (b.zg){
+    b.zg.t = 0; b.zg.n = 0;
+  }
+
+  // anti-stuck, escalating
+  const inLane = (b.x > 418 && b.y > 310);
+  const nearlyStill = (sp < 30 && Math.abs(b.vx) < 26 && Math.abs(b.vy) < 26);
+  if (state.mode === 'play' && !inLane && nearlyStill && b.y < 736){
+    b.stuck += dt;
+    if (b.stuck > 1.6){
+      b.stuck = 0;
+      b.tries = (b.tries || 0) + 1;
+      if (b.tries <= 2){
+        const dirX = (b.x < 240) ? 1 : -1;
+        b.vx = dirX * (280 + b.tries * 90);
+        b.vy = -(520 + b.tries * 120);
+        state.shake = 6;
+      } else {
+        b.x = 240; b.y = 470;
+        b.vx = (Math.random() - 0.5) * 120;
+        b.vy = -260;
+        b.tries = 0;
+        state.shake = 9;
+        burst(240, 470, C.cyan, 14, 240);
+      }
+    }
+  } else {
+    b.stuck = 0;
+    if (sp > 120) b.tries = 0;
+  }
+}
+
+/* ---------------------------- update ---------------------------- */
+function update(dt){
+  state.time += dt;
+  if (state.shake > 0) state.shake = Math.max(0, state.shake - dt * 40);
+  if (state.flash > 0) state.flash = Math.max(0, state.flash - dt * 2.2);
+  if (state.banner){ state.banner.t -= dt; if (state.banner.t <= 0) state.banner = null; }
+  if (state.tilt > 0) state.tilt = Math.max(0, state.tilt - dt);
+  state.nudge = Math.max(0, state.nudge - dt * 0.55);
+  for (let i = 0; i < 2; i++) state.wormCd[i] = Math.max(0, state.wormCd[i] - dt);
+
+  // combo window decays; running out drops the stack (not the multiplier)
+  if (state.comboT > 0){
+    state.comboT -= dt;
+    if (state.comboT <= 0){ state.comboT = 0; state.combo = 0; }
+  }
+
+  // timed challenge clock
+  if (state.screen === 'play' && state.gameMode === 'daily' && state.timeLeft > 0){
+    state.timeLeft = Math.max(0, state.timeLeft - dt);
+    if (state.timeLeft <= 0){ endRun(); return; }
+  }
+
+  for (let i = BUMPERS.length - 1; i >= 0; i--) BUMPERS[i].pop *= Math.pow(0.02, dt);
+  for (let i = SLINGS.length - 1; i >= 0; i--)  SLINGS[i].pop  *= Math.pow(0.02, dt);
+  for (let i = POSTS.length - 1; i >= 0; i--)   POSTS[i].pop   *= Math.pow(0.02, dt);
+  for (let i = MISSION_TARGETS.length - 1; i >= 0; i--){
+    MISSION_TARGETS[i].pop *= Math.pow(0.02, dt);
+    if (MISSION_TARGETS[i].cd > 0) MISSION_TARGETS[i].cd = Math.max(0, MISSION_TARGETS[i].cd - dt);
+  }
+  for (let i = WORMS.length - 1; i >= 0; i--)   WORMS[i].pop    *= Math.pow(0.02, dt);
+
+  // mission fuel: one light out every 5 seconds
+  const m = state.mission;
+  if (m && state.mode === 'play'){
+    m.fuelT += dt;
+    if (m.fuelT >= FUEL_SEC){
+      m.fuelT = 0;
+      m.fuel--;
+      if (m.fuel <= 0){ m.fuel = 0; abortMission('燃料耗尽'); }
+    }
+  }
+
+  // particles
+  for (let i = parts.length - 1; i >= 0; i--){
+    const p = parts[i];
+    p.life -= dt / p.max;
+    if (p.life <= 0){ parts.splice(i, 1); continue; }
+    p.vy += 420 * dt;
+    p.vx *= (1 - 1.6 * dt);
+    p.x += p.vx * dt; p.y += p.vy * dt;
+  }
+  for (let i = pops.length - 1; i >= 0; i--){
+    const p = pops[i];
+    p.life -= dt * 1.5;
+    if (p.life <= 0){ pops.splice(i, 1); continue; }
+    p.y += p.vy * dt;
+    p.vy *= (1 - 2 * dt);
+  }
+
+  leftF.update(dt);
+  rightF.update(dt);
+
+  // menus pause the simulation entirely
+  if (state.screen === 'menu' || state.screen === 'board') return;
+  if (state.mode === 'over') return;
+
+  // physics for every ball
+  for (let i = balls.length - 1; i >= 0; i--){
+    if (!balls[i].live) { balls.splice(i, 1); continue; }
+    stepBall(balls[i], dt);
+  }
+
+  // drain: remove balls that fell through
+  for (let i = balls.length - 1; i >= 0; i--){
+    if (balls[i].y > 784){
+      burst(balls[i].x, 780, C.red, 10, 180);
+      balls.splice(i, 1);
+    }
+  }
+  if (balls.length === 0){
+    ballLost();
+    return;
+  }
+
+  // multiball ends when one ball is left; the jackpot paid out is the one built up
+  if (state.multiball){
+    if (balls.length <= 1){
+      state.multiball = false;
+      addScore(state.jackpot, 240, 460, C.gold);
+      state.banner = {t:1.6, text:'JACKPOT', sub:'+' + state.jackpot};
+      popText(240, 480, 'JACKPOT +' + state.jackpot, C.gold);
+      state.jackpot = 25000;
+      sfx.rank();
+    } else {
+      state.jackpot = Math.min(250000, state.jackpot + Math.round(240 * dt * 12));
+    }
+  }
+
+  // safety: a ball resting in the lane after launch may be re-plunged
+  const b0 = balls[0];
+  if (state.mode === 'play' && balls.length === 1 && b0.x > 418 && b0.y > 700 &&
+      Math.abs(b0.vy) < 30 && Math.abs(b0.vx) < 30){
+    state.mode = 'ready';
+    b0.vx = 0; b0.vy = 0; b0.x = 434; b0.y = 754;
+  }
+}
+
+/* ---------------------------- drawing helpers ---------------------------- */
+function rr(x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function starPath(x, y, r, inner){
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++){
+    const rad = (i % 2 === 0) ? r : r * (inner || 0.44);
+    const a = -Math.PI / 2 + i * Math.PI / 5;
+    const px = x + Math.cos(a) * rad;
+    const py = y + Math.sin(a) * rad;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+}
+
+/* ---------------------------- starfield ---------------------------- */
+const STARS = [];
+for (let i = 0; i < 170; i++){
+  STARS.push({
+    x: Math.random() * CW,
+    y: Math.random() * CH,
+    r: Math.random() * 1.5 + 0.3,
+    ph: Math.random() * Math.PI * 2,
+    sp: 0.6 + Math.random() * 1.8,
+    c: Math.random() < 0.14 ? '#9fd0ff' : (Math.random() < 0.5 ? '#ffffff' : '#c9d8ff')
+  });
+}
+
+function drawBackground(){
+  const g = ctx.createRadialGradient(CW * 0.5, CH * 0.16, 10, CW * 0.5, CH * 0.5, CH * 0.85);
+  g.addColorStop(0, '#101a3e');
+  g.addColorStop(0.45, '#080c22');
+  g.addColorStop(1, '#04050d');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, CW, CH);
+
+  const neb = [[90, 200, 180, 'rgba(80,110,255,.16)'],
+               [400, 380, 210, 'rgba(190,80,220,.13)'],
+               [250, 680, 240, 'rgba(40,160,200,.10)']];
+  for (let i = 0; i < neb.length; i++){
+    const n = neb[i];
+    const rg = ctx.createRadialGradient(n[0], n[1], 0, n[0], n[1], n[2]);
+    rg.addColorStop(0, n[3]);
+    rg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = rg;
+    ctx.fillRect(0, 0, CW, CH);
+  }
+
+  for (let i = 0; i < STARS.length; i++){
+    const s = STARS[i];
+    const tw = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(state.time * s.sp + s.ph));
+    ctx.globalAlpha = tw;
+    ctx.fillStyle = s.c;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, 6.2832);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ---------------------------- backglass ---------------------------- */
+function tinyText(txt, x, y, size, color, align, ls){
+  ctx.font = '600 ' + size + 'px ui-monospace,Menlo,monospace';
+  ctx.textAlign = align || 'left';
+  ctx.textBaseline = 'middle';
+  ctx.letterSpacing = (ls === undefined ? '1px' : ls);
+  ctx.fillStyle = color;
+  ctx.fillText(txt, x, y);
+  ctx.letterSpacing = '0px';
+}
+
+function drawBackglass(){
+  ctx.save();
+  rr(8, 8, W - 16, HEAD - 16, 16);
+  const g = ctx.createLinearGradient(0, 0, 0, HEAD);
+  g.addColorStop(0, 'rgba(20,30,70,.96)');
+  g.addColorStop(1, 'rgba(7,11,28,.96)');
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.lineWidth = 1.4;
+  ctx.strokeStyle = 'rgba(96,150,255,.42)';
+  ctx.stroke();
+  rr(14, 14, W - 28, HEAD - 28, 12);
+  ctx.strokeStyle = 'rgba(120,180,255,.10)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+
+  // ---- row 1: rank (left) / stars (mid) / balls (right) ----
+  tinyText(RANKS[state.rank], 26, 28, 11, C.orange, 'left', '1.6px');
+  // orange rank pips (8 total, lit as you climb)
+  for (let i = 0; i < 8; i++){
+    const on = i < state.orangeLights;
+    ctx.beginPath();
+    ctx.arc(30 + i * 9, 42, 2.4, 0, 6.2832);
+    if (on){
+      ctx.fillStyle = C.orange;
+      ctx.shadowColor = 'rgba(255,159,67,.9)';
+      ctx.shadowBlur = 8;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    } else {
+      ctx.strokeStyle = 'rgba(255,159,67,.28)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+
+  // stars, centred
+  for (let i = 0; i < 3; i++){
+    const cx = 214 + i * 22, cy = 28;
+    starPath(cx, cy, 8, 0.45);
+    if (state.stars[i]){
+      ctx.shadowColor = 'rgba(255,215,110,.95)';
+      ctx.shadowBlur = 14;
+      ctx.fillStyle = C.gold;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    } else {
+      ctx.strokeStyle = 'rgba(120,150,210,.5)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+  }
+
+  // sound label, top-left under the rank
+  tinyText(state.muted ? 'MUTE' : 'SND', 26, 60, 9,
+           state.muted ? C.red : 'rgba(150,180,230,.55)', 'left', '1px');
+
+  // balls left (right, stacked as pips with a BALL caption)
+  ctx.save();
+  for (let i = 0; i < 5; i++){
+    const cx = W - 34 - i * 17, cy = 28;
+    const on = i < Math.min(5, state.ballsLeft);
+    ctx.beginPath();
+    ctx.arc(cx, cy, 5, 0, 6.2832);
+    if (on){
+      ctx.shadowColor = 'rgba(110,220,255,.9)';
+      ctx.shadowBlur = 10;
+      ctx.fillStyle = '#9fe8ff';
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    } else {
+      ctx.strokeStyle = 'rgba(110,150,220,.3)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+  tinyText('BALL', W - 26, 46, 8, 'rgba(150,180,230,.45)', 'right', '1px');
+
+  /* live run meter: combo / challenge clock / WARP track. Placed on the bar between
+     rank pips and the mission line so it reads while playing without covering anything. */
+  if (state.screen === 'play'){
+    // combo
+    if (state.combo > 1){
+      const k = Math.min(1, state.comboT / 2.2);
+      ctx.save();
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.font = '700 11px ui-monospace,Menlo,monospace';
+      ctx.fillStyle = state.combo >= 8 ? C.gold : C.cyan;
+      ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 10;
+      ctx.fillText('COMBO ×' + state.combo, 96, 72);
+      ctx.shadowBlur = 0;
+      // decay bar
+      ctx.fillStyle = 'rgba(94,231,255,.22)';
+      ctx.fillRect(96, 80, 62, 3);
+      ctx.fillStyle = state.combo >= 8 ? C.gold : C.cyan;
+      ctx.fillRect(96, 80, 62 * k, 3);
+      ctx.restore();
+    }
+
+    // challenge clock
+    if (state.gameMode === 'daily'){
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const t = Math.ceil(state.timeLeft);
+      ctx.font = '700 13px ui-monospace,Menlo,monospace';
+      ctx.fillStyle = t <= 10 ? C.red : C.gold;
+      if (t <= 10){ ctx.shadowColor = C.red; ctx.shadowBlur = 12; }
+      ctx.fillText(t + 's', W / 2, 104);
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+
+    // WARP track (right side, 4 pips)
+    ctx.save();
+    for (let i = 0; i < 4; i++){
+      const cx = W - 120 + i * 12, cy = 72;
+      ctx.beginPath(); ctx.arc(cx, cy, 3, 0, 6.2832);
+      if (i < state.warpLevel){
+        ctx.fillStyle = C.violet; ctx.shadowColor = C.violet; ctx.shadowBlur = 8; ctx.fill(); ctx.shadowBlur = 0;
+      } else {
+        ctx.strokeStyle = 'rgba(167,139,250,.35)'; ctx.lineWidth = 1; ctx.stroke();
+      }
+    }
+    tinyText('WARP', W - 158, 72, 7, 'rgba(167,139,250,.6)', 'left', '0.5px');
+    ctx.restore();
+  }
+
+  // ---- row 2: score ----
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '700 32px ui-monospace,Menlo,monospace';
+  ctx.shadowColor = 'rgba(110,190,255,.85)';
+  ctx.shadowBlur = 18;
+  ctx.fillStyle = '#eaf4ff';
+  ctx.fillText(String(state.score).padStart(7, '0'), W / 2, 72);
+  ctx.shadowBlur = 0;
+  ctx.restore();
+
+  tinyText('×' + state.mult, W - 26, 72, 14,
+           state.mult > 1 ? C.gold : 'rgba(150,180,230,.5)', 'right', '0px');
+
+  // REPLAY lamp, the original's red light by the left flipper
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(30, 72, 5, 0, 6.2832);
+  if (state.replay){
+    ctx.fillStyle = '#ff4a5e';
+    ctx.shadowColor = 'rgba(255,74,94,.95)';
+    ctx.shadowBlur = 14;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  } else {
+    ctx.fillStyle = 'rgba(60,14,22,.9)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,74,94,.45)';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+  }
+  ctx.restore();
+  tinyText('REPLAY', 40, 72, 8,
+           state.replay ? '#ff7b8b' : 'rgba(160,110,125,.5)', 'left', '0.5px');
+
+  // ---- row 3: rank ring progress + mission line ----
+  // blue ring progress as 4 small pips
+  for (let i = 0; i < RANK_LIGHTS; i++){
+    const cx = 28 + i * 14, cy = 100;
+    const on = i < state.rankLights;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4.2, 0, 6.2832);
+    if (on){
+      ctx.fillStyle = '#6fc4ff';
+      ctx.shadowColor = 'rgba(111,196,255,.95)';
+      ctx.shadowBlur = 10;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    } else {
+      ctx.strokeStyle = 'rgba(111,196,255,.35)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+  }
+
+  // mission / fuel line
+  const m = state.mission;
+  if (m){
+    const st = stageNow();
+    const label = m.def.name + ' ' + (m.stage + 1) + '/' + m.def.stages.length +
+                  (st ? ' ' + (st.zh || st.kind) + ' ' + m.prog + '/' + st.goal : '');
+    tinyText(label, 96, 100, 10, C.green, 'left', '0.2px');
+    for (let i = 0; i < FUEL_N; i++){
+      const cx = 296 + i * 13, cy = 100;
+      const on = i < m.fuel;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 3.6, 0, 6.2832);
+      if (on){
+        ctx.fillStyle = C.green;
+        ctx.shadowColor = 'rgba(94,242,176,.9)';
+        ctx.shadowBlur = 7;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      } else {
+        ctx.strokeStyle = 'rgba(94,242,176,.3)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+    tinyText('FUEL', 396, 100, 8, 'rgba(94,242,176,.55)', 'left', '0.5px');
+  } else if (state.selected >= 0){
+    const def = missionSlots()[state.selected];
+    tinyText('已选 ' + def.name, 96, 100, 11, C.gold, 'left', '0.4px');
+    const pulse = 0.5 + 0.5 * Math.sin(state.time * 6);
+    ctx.globalAlpha = 0.45 + pulse * 0.55;
+    tinyText('走发射坡道接任务', 300, 100, 10, C.cyan, 'left', '0.2px');
+    ctx.globalAlpha = 1;
+  } else {
+    tinyText('击打顶部 1·2·3 任务灯选任务', 96, 100, 11, 'rgba(140,175,235,.72)', 'left', '0.2px');
+    if (state.tilt > 0){
+      ctx.globalAlpha = 0.9;
+      tinyText('TILT ' + state.tilt.toFixed(1), 320, 100, 12, C.red, 'left', '1px');
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+
+/* ---------------------------- playfield ---------------------------- */
+function drawPlayfieldDeco(){
+  ctx.save();
+  const pg = ctx.createRadialGradient(240, 200, 10, 240, 200, 130);
+  pg.addColorStop(0, 'rgba(80,110,255,.13)');
+  pg.addColorStop(0.6, 'rgba(90,60,200,.05)');
+  pg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = pg;
+  ctx.beginPath();
+  ctx.arc(240, 200, 130, 0, 6.2832);
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(120,170,255,.10)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 3; i++){
+    ctx.beginPath();
+    ctx.arc(240, 250, 110 + i * 42, 0, 6.2832);
+    ctx.stroke();
+  }
+  ctx.save();
+  ctx.translate(240, 250);
+  ctx.rotate(-0.32);
+  ctx.scale(1, 0.36);
+  ctx.strokeStyle = 'rgba(255,180,110,.16)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, 0, 168, 0, 6.2832);
+  ctx.stroke();
+  ctx.restore();
+  ctx.restore();
+}
+
+function drawWalls(){
+  ctx.save();
+  ctx.lineCap = 'round';
+  for (let i = 0; i < WALLS.length; i++){
+    const w = WALLS[i];
+    ctx.strokeStyle = C.wall;
+    ctx.lineWidth = w.r * 2;
+    ctx.beginPath();
+    ctx.moveTo(w.ax, w.ay); ctx.lineTo(w.bx, w.by);
+    ctx.stroke();
+  }
+  ctx.shadowColor = 'rgba(90,160,255,.75)';
+  ctx.shadowBlur = 14;
+  ctx.strokeStyle = C.wallHi;
+  ctx.lineWidth = 2;
+  for (let i = 0; i < WALLS.length; i++){
+    const w = WALLS[i];
+    ctx.beginPath();
+    ctx.moveTo(w.ax, w.ay); ctx.lineTo(w.bx, w.by);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawDrainZone(){
+  ctx.save();
+  const g = ctx.createLinearGradient(0, 726, 0, 800);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(0.5, 'rgba(0,0,0,.45)');
+  g.addColorStop(1, 'rgba(0,0,0,.88)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 726, W, 74);
+
+  const rg = ctx.createRadialGradient(240, 742, 2, 240, 742, 46);
+  rg.addColorStop(0, 'rgba(255,80,100,' + (0.10 + 0.05 * Math.sin(state.time * 3)) + ')');
+  rg.addColorStop(1, 'rgba(255,80,100,0)');
+  ctx.fillStyle = rg;
+  ctx.fillRect(190, 700, 100, 100);
+  ctx.restore();
+}
+
+// Inlane guides as data, so the slingshots can mount onto them visually.
+const INLANES = [
+  {ax:24,  ay:636, bx:140, by:700},
+  {ax:412, ay:636, bx:340, by:700}
+];
+
+function nearestOnSeg(px, py, s){
+  const abx = s.bx - s.ax, aby = s.by - s.ay;
+  const L2 = abx*abx + aby*aby || 1;
+  let t = ((px - s.ax) * abx + (py - s.ay) * aby) / L2;
+  t = t < 0 ? 0 : (t > 1 ? 1 : t);
+  return {x: s.ax + abx * t, y: s.ay + aby * t};
+}
+
+function drawSlings(){
+  for (let i = 0; i < SLINGS.length; i++){
+    const s = SLINGS[i];
+    const pop = s.pop;
+
+    // mount post: from the capsule's lower end straight onto the inlane guide
+    const foot = nearestOnSeg(s.x2, s.y2, INLANES[i]);
+
+    ctx.save();
+    ctx.lineCap = 'round';
+
+    ctx.strokeStyle = 'rgba(40,28,86,.95)';
+    ctx.lineWidth = 12;
+    ctx.beginPath(); ctx.moveTo(s.x2, s.y2); ctx.lineTo(foot.x, foot.y); ctx.stroke();
+    ctx.strokeStyle = 'rgba(126,96,205,.55)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(s.x2, s.y2); ctx.lineTo(foot.x, foot.y); ctx.stroke();
+
+    // base bolt where the post meets the guide
+    ctx.fillStyle = 'rgba(150,120,235,.5)';
+    ctx.beginPath(); ctx.arc(foot.x, foot.y, 4.2, 0, 6.2832); ctx.fill();
+
+    ctx.shadowColor = 'rgba(190,145,255,' + (0.45 + pop * 0.35) + ')';
+    ctx.shadowBlur = 22 + pop * 26;
+    ctx.strokeStyle = 'rgba(150,110,240,' + (0.20 + pop * 0.25) + ')';
+    ctx.lineWidth = s.r * 2 + 12;
+    ctx.beginPath(); ctx.moveTo(s.x1, s.y1); ctx.lineTo(s.x2, s.y2); ctx.stroke();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(78,52,152,.95)';
+    ctx.lineWidth = s.r * 2;
+    ctx.beginPath(); ctx.moveTo(s.x1, s.y1); ctx.lineTo(s.x2, s.y2); ctx.stroke();
+
+    ctx.shadowColor = 'rgba(196,150,255,' + (0.75 + pop * 0.25) + ')';
+    ctx.shadowBlur = 14 + pop * 22;
+    ctx.strokeStyle = 'rgba(188,148,255,' + (0.90 + pop * 0.10) + ')';
+    ctx.lineWidth = s.r * 2 - 3;
+    ctx.beginPath(); ctx.moveTo(s.x1, s.y1); ctx.lineTo(s.x2, s.y2); ctx.stroke();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(255,248,255,' + (0.70 + pop * 0.30) + ')';
+    ctx.lineWidth = 2.6;
+    ctx.beginPath(); ctx.moveTo(s.x1, s.y1); ctx.lineTo(s.x2, s.y2); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawLaneLamps(){
+  const hot = state.bumpersHot;
+  for (let i = 0; i < 3; i++){
+    const L = LANE_LAMPS[i];
+    const on = state.lanes[i];
+    const col = hot ? C.orange : (on ? C.cyan : null);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(L.x, L.y, 5.5, 0, 6.2832);
+    if (col){
+      ctx.fillStyle = col;
+      ctx.shadowColor = col;
+      ctx.shadowBlur = 13;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    } else {
+      ctx.fillStyle = 'rgba(6,12,30,.9)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(120,170,255,.45)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  if (hot){
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '700 8px ui-monospace,Menlo,monospace';
+    ctx.letterSpacing = '1.6px';
+    ctx.fillStyle = 'rgba(255,159,67,.9)';
+    ctx.shadowColor = 'rgba(255,159,67,.7)';
+    ctx.shadowBlur = 9;
+    ctx.fillText('HOT BUMPERS', 240, 214);
+    ctx.letterSpacing = '0px';
+    ctx.restore();
+  }
+}
+
+function drawMissionTargets(){
+  for (let i = 0; i < MISSION_TARGETS.length; i++){
+    const t = MISSION_TARGETS[i];
+    const pop = t.pop;
+    const sel = (state.selected === i);
+    const run = (state.mission && state.mission.slot === i);
+    const r = 11 * (1 + pop * 0.25);
+    const def = missionSlots()[i];
+
+    ctx.save();
+    // glow on the arc
+    const g = ctx.createRadialGradient(t.x, t.y, 2, t.x, t.y, r * 3.2);
+    g.addColorStop(0, 'rgba(255,255,255,' + (0.12 + pop * 0.45) + ')');
+    g.addColorStop(0.42, t.c + '55');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(t.x, t.y, r * 3.2, 0, 6.2832); ctx.fill();
+
+    // rollover ring
+    ctx.beginPath(); ctx.arc(t.x, t.y, r, 0, 6.2832);
+    ctx.fillStyle = 'rgba(8,14,32,.92)';
+    ctx.fill();
+    ctx.strokeStyle = t.c;
+    ctx.lineWidth = (sel || run) ? 2.8 : 2;
+    ctx.shadowColor = t.c;
+    ctx.shadowBlur = (sel || run) ? 22 : (10 + pop * 16);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // slot number inside
+    ctx.font = '700 9px ui-monospace,Menlo,monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = t.c;
+    ctx.globalAlpha = sel ? 1 : 0.9;
+    ctx.fillText(String(i + 1), t.x, t.y + 0.5);
+
+    // which mission this slot holds, placed just INSIDE the ring so it stays readable
+    if (def){
+      const ix = t.x + (240 - t.x) * 0.20;
+      const iy = t.y + (300 - t.y) * 0.20;
+      ctx.globalAlpha = (sel || run) ? 1 : 0.6;
+      ctx.font = '700 8px ui-monospace,Menlo,monospace';
+      ctx.fillStyle = t.c;
+      ctx.fillText(def.id.toUpperCase(), ix, iy);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+}
+
+function drawPosts(){
+  for (let i = 0; i < POSTS.length; i++){
+    const t = POSTS[i];
+    const r = t.r * (1 + t.pop * 0.3);
+    ctx.save();
+    const g = ctx.createRadialGradient(t.x, t.y, 0, t.x, t.y, r * 2.2);
+    g.addColorStop(0, 'rgba(255,255,255,' + (0.10 + t.pop * 0.45) + ')');
+    g.addColorStop(0.4, t.c + '3c');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(t.x, t.y, r * 2.2, 0, 6.2832); ctx.fill();
+
+    const bg = ctx.createRadialGradient(t.x - r*0.3, t.y - r*0.4, 1, t.x, t.y, r);
+    bg.addColorStop(0, '#ffffff');
+    bg.addColorStop(0.45, t.c);
+    bg.addColorStop(1, 'rgba(10,16,40,.9)');
+    ctx.fillStyle = bg;
+    ctx.beginPath(); ctx.arc(t.x, t.y, r, 0, 6.2832); ctx.fill();
+
+    ctx.strokeStyle = t.c;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = t.c;
+    ctx.shadowBlur = 12 + t.pop * 22;
+    ctx.beginPath(); ctx.arc(t.x, t.y, r, 0, 6.2832); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawRankRing(){
+  const litCount = state.rankLights;
+
+  ctx.save();
+  // ring track
+  ctx.strokeStyle = 'rgba(111,196,255,' + (0.22 + 0.06 * Math.sin(state.time * 2)) + ')';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(RING.cx, RING.cy, RING.rad, 0, 6.2832);
+  ctx.stroke();
+
+  // inner dashed track for depth
+  ctx.strokeStyle = 'rgba(111,196,255,.10)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 6]);
+  ctx.beginPath();
+  ctx.arc(RING.cx, RING.cy, RING.rad - 10, 0, 6.2832);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // centre label: rank progress
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '700 10px ui-monospace,Menlo,monospace';
+  ctx.fillStyle = litCount > 0 ? 'rgba(120,200,255,.85)' : 'rgba(110,150,215,.42)';
+  ctx.fillText(litCount + '/' + RANK_LIGHTS, RING.cx, RING.cy + 1);
+
+  for (let i = 0; i < RING_POS.length; i++){
+    const p = RING_POS[i];
+    const on = i < litCount;
+    if (on){
+      ctx.shadowColor = 'rgba(111,196,255,.95)';
+      ctx.shadowBlur = 18;
+    }
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 8, 0, 6.2832);
+    if (on){
+      ctx.fillStyle = '#6fc4ff';
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(255,255,255,.9)';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, 6.2832); ctx.fill();
+    } else {
+      ctx.fillStyle = 'rgba(6,12,30,.92)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(111,196,255,.5)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawWorms(){
+  for (let i = 0; i < WORMS.length; i++){
+    const w = WORMS[i];
+    const armed = (state.wormArmed === i);
+    const pulse = 0.5 + 0.5 * Math.sin(state.time * 3 + i * 2);
+
+    ctx.save();
+    // outer nebula halo
+    const g = ctx.createRadialGradient(w.x, w.y, 1, w.x, w.y, w.r * 2.8);
+    g.addColorStop(0, w.c + (armed ? '70' : '3a'));
+    g.addColorStop(0.5, w.c + (armed ? '30' : '16'));
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(w.x, w.y, w.r * 2.8, 0, 6.2832); ctx.fill();
+
+    // funnel: concentric rings pulled inward, so it reads as a drain not a circle
+    for (let k = 4; k >= 1; k--){
+      const rr2 = w.r * (k / 4);
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, rr2, 0, 6.2832);
+      const fg = ctx.createRadialGradient(w.x, w.y, 1, w.x, w.y, rr2);
+      fg.addColorStop(0, 'rgba(0,0,0,1)');
+      fg.addColorStop(0.7, 'rgba(2,5,14,.96)');
+      fg.addColorStop(1, w.c + '1f');
+      ctx.fillStyle = fg;
+      ctx.fill();
+    }
+
+    // swirl arcs
+    ctx.strokeStyle = w.c + (armed ? 'cc' : '66');
+    ctx.lineWidth = armed ? 2.2 : 1.5;
+    for (let k = 0; k < 3; k++){
+      const a0 = state.time * (1.6 + k * 0.5) + k * 2.1 + i;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, w.r * (0.62 + k * 0.12), a0, a0 + 1.5);
+      ctx.stroke();
+    }
+
+    // rim
+    ctx.strokeStyle = w.c;
+    ctx.lineWidth = armed ? 2.8 : 2;
+    ctx.shadowColor = w.c;
+    ctx.shadowBlur = armed ? 24 : (12 + pulse * 10);
+    ctx.beginPath(); ctx.arc(w.x, w.y, w.r, 0, 6.2832); ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    if (armed){
+      ctx.globalAlpha = 0.5 + pulse * 0.5;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(w.x, w.y, w.r + 5, 0, 6.2832); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+}
+
+function drawFuelLights(){
+  const m = state.mission;
+  for (let i = 0; i < FUEL_POS.length; i++){
+    const p = FUEL_POS[i];
+    const on = m ? (i < m.fuel) : false;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 4, 0, 6.2832);
+    if (on){
+      ctx.fillStyle = C.green;
+      ctx.shadowColor = 'rgba(94,242,176,.9)';
+      ctx.shadowBlur = 9;
+      ctx.fill();
+    } else {
+      ctx.fillStyle = 'rgba(6,12,28,.9)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(94,242,176,.22)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+function drawBumpers(){
+  for (let i = 0; i < BUMPERS.length; i++){
+    const b = BUMPERS[i];
+    const r = b.r * (1 + b.pop * 0.16);
+    ctx.save();
+
+    const g = ctx.createRadialGradient(b.x, b.y, r * 0.2, b.x, b.y, r * 2.1);
+    g.addColorStop(0, 'rgba(255,255,255,' + (0.20 + b.pop * 0.5) + ')');
+    g.addColorStop(0.35, b.c + '55');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(b.x, b.y, r * 2.1, 0, 6.2832); ctx.fill();
+
+    const bg = ctx.createRadialGradient(b.x - r*0.3, b.y - r*0.4, r*0.1, b.x, b.y, r);
+    bg.addColorStop(0, '#ffffff');
+    bg.addColorStop(0.35, b.c);
+    bg.addColorStop(1, 'rgba(12,18,44,.95)');
+    ctx.fillStyle = bg;
+    ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, 6.2832); ctx.fill();
+
+    ctx.strokeStyle = b.c;
+    ctx.lineWidth = 2.5;
+    ctx.shadowColor = b.c;
+    ctx.shadowBlur = 16 + b.pop * 26;
+    ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, 6.2832); ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.strokeStyle = 'rgba(255,255,255,' + (0.30 + b.pop * 0.6) + ')';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(b.x, b.y, r * 0.52, 0, 6.2832); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawFlippers(){
+  const fs = [leftF, rightF];
+  const dead = (state.tilt > 0);
+  for (let i = 0; i < 2; i++){
+    const f = fs[i];
+    const tip = f.tip();
+    ctx.save();
+    ctx.lineCap = 'round';
+
+    ctx.globalAlpha = dead ? 0.4 : 1;
+    ctx.shadowColor = f.pressed ? 'rgba(255,130,225,.95)' : 'rgba(90,160,255,.65)';
+    ctx.shadowBlur = f.pressed ? 28 : 16;
+    ctx.strokeStyle = f.pressed ? '#ff9ee8' : '#84bcff';
+    ctx.lineWidth = 17;
+    ctx.beginPath(); ctx.moveTo(f.px, f.py); ctx.lineTo(tip.x, tip.y); ctx.stroke();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = '#0c1430';
+    ctx.lineWidth = 11;
+    ctx.beginPath(); ctx.moveTo(f.px, f.py); ctx.lineTo(tip.x, tip.y); ctx.stroke();
+
+    ctx.strokeStyle = f.pressed ? '#ffe6f9' : '#d8edff';
+    ctx.lineWidth = 3.5;
+    ctx.beginPath(); ctx.moveTo(f.px, f.py); ctx.lineTo(tip.x, tip.y); ctx.stroke();
+
+    ctx.fillStyle = '#16204a';
+    ctx.beginPath(); ctx.arc(f.px, f.py, 8, 0, 6.2832); ctx.fill();
+    ctx.strokeStyle = f.pressed ? C.magenta : C.blue;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(f.px, f.py, 8, 0, 6.2832); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawBallOne(b){
+  for (let i = 0; i < b.trail.length; i++){
+    const t = b.trail[i];
+    const a = (i / b.trail.length) * 0.30;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#7fc4ff';
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, b.r * (0.35 + 0.6 * i / b.trail.length), 0, 6.2832);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.save();
+  ctx.shadowColor = 'rgba(150,215,255,.95)';
+  ctx.shadowBlur = 22;
+  const g = ctx.createRadialGradient(b.x - 3, b.y - 4, 1, b.x, b.y, b.r);
+  g.addColorStop(0, '#ffffff');
+  g.addColorStop(0.5, '#cfeaff');
+  g.addColorStop(1, '#5f9bd8');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 6.2832); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,255,255,.85)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(b.x, b.y, b.r - 0.6, 0, 6.2832); ctx.stroke();
+  ctx.restore();
+}
+
+function drawBalls(){
+  for (let i = 0; i < balls.length; i++) drawBallOne(balls[i]);
+}
+
+function drawPlunger(){
+  const pulled = (state.mode !== 'ready');
+  const len = 34 - (pulled ? 1 : 0) * 26;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(120,160,230,.55)';
+  ctx.lineWidth = 7;
+  ctx.beginPath();
+  ctx.moveTo(434, 782 - 6);
+  ctx.lineTo(434, 782 - 6 - len);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(200,225,255,.9)';
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.moveTo(434, 782 - 6);
+  ctx.lineTo(434, 782 - 6 - len);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/* ---------------------------- UI kit (buttons + screens) ---------------------------- */
+/* Buttons are drawn on the canvas because the same file must run inside a Mini Program,
+   where there is no DOM to hang HTML buttons on. Hit areas are recorded each frame in
+   state.btnRects and consumed by the pointer handler. */
+function btn(id, x, y, w, h, label, sub, opts){
+  opts = opts || {};
+  const hot = (state.btnHot === id);
+  const disabled = !!opts.disabled;
+  const accent = opts.accent || C.cyan;
+
+  ctx.save();
+  // plate
+  rr(x, y, w, h, opts.radius === undefined ? 12 : opts.radius);
+  const g = ctx.createLinearGradient(x, y, x, y + h);
+  if (disabled){
+    g.addColorStop(0, 'rgba(24,30,52,.94)');
+    g.addColorStop(1, 'rgba(14,18,34,.94)');
+  } else if (opts.primary){
+    g.addColorStop(0, hexA(accent, hot ? 0.34 : 0.24));
+    g.addColorStop(1, hexA(accent, hot ? 0.18 : 0.10));
+  } else {
+    g.addColorStop(0, 'rgba(18,24,46,.94)');
+    g.addColorStop(1, 'rgba(10,14,28,.94)');
+  }
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = disabled ? 'rgba(90,110,150,.28)' : hexA(accent, hot ? 0.95 : 0.5);
+  ctx.lineWidth = hot ? 2 : 1.4;
+  if (!disabled && hot){ ctx.shadowColor = accent; ctx.shadowBlur = 16; }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // label
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const cx = x + w / 2;
+  if (sub){
+    ctx.font = '700 15px ui-monospace,Menlo,monospace';
+    ctx.fillStyle = disabled ? 'rgba(150,170,205,.45)' : '#eaf4ff';
+    ctx.fillText(label, cx, y + h / 2 - 8);
+    ctx.font = '600 9px ui-monospace,Menlo,monospace';
+    ctx.fillStyle = disabled ? 'rgba(140,160,195,.35)' : hexA(accent, 0.75);
+    ctx.fillText(sub, cx, y + h / 2 + 10);
+  } else {
+    ctx.font = '700 14px ui-monospace,Menlo,monospace';
+    ctx.fillStyle = disabled ? 'rgba(150,170,205,.45)' : '#eaf4ff';
+    ctx.fillText(label, cx, y + h / 2 + 1);
+  }
+  ctx.restore();
+
+  if (!disabled) state.btnRects.push({id:id, x:x, y:y + UI_DY, w:w, h:h, action:opts.action});
+}
+
+function hexA(hex, a){
+  // '#rrggbb' + alpha -> rgba()
+  const h = hex.replace('#','');
+  const r = parseInt(h.substring(0,2),16), g = parseInt(h.substring(2,4),16), b = parseInt(h.substring(4,6),16);
+  return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+}
+
+function panel(x, y, w, h, title, accent){
+  ctx.save();
+  rr(x, y, w, h, 18);
+  const g = ctx.createLinearGradient(x, y, x, y + h);
+  g.addColorStop(0, 'rgba(14,20,44,.97)');
+  g.addColorStop(1, 'rgba(6,9,22,.98)');
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = hexA(accent || C.blue, 0.5);
+  ctx.lineWidth = 1.4;
+  ctx.stroke();
+  if (title){
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '700 13px ui-monospace,Menlo,monospace';
+    ctx.letterSpacing = '3px';
+    ctx.fillStyle = hexA(accent || C.blue, 0.9);
+    ctx.fillText(title, x + w / 2, y + 26);
+    ctx.letterSpacing = '0px';
+  }
+  ctx.restore();
+}
+
+/* ---------------------------- screens ---------------------------- */
+/* Screens are authored for an 0..800 tall area, then shifted by UI_DY so they sit
+   centred inside the taller cabinet (CW x CH). Button rects record the SHIFTED coords,
+   which is what the pointer handler compares against. */
+let UI_DY = 0;
+
+function drawMenu(){
+  UI_DY = HEAD + 10;
+  ctx.save();
+  ctx.translate(0, UI_DY);
+  ctx.fillStyle = 'rgba(3,5,14,.90)';
+  ctx.fillRect(0, 0, CW, CH);
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // wordmark
+  ctx.font = '800 30px ui-monospace,Menlo,monospace';
+  ctx.letterSpacing = '6px';
+  ctx.shadowColor = C.cyan;
+  ctx.shadowBlur = 26;
+  ctx.fillStyle = '#eaf8ff';
+  ctx.fillText('PINBALL', 240, 120);
+  ctx.fillText('STAR', 240, 156);
+  ctx.shadowBlur = 0;
+  ctx.letterSpacing = '0px';
+
+  ctx.font = '600 10px ui-monospace,Menlo,monospace';
+  ctx.letterSpacing = '3px';
+  ctx.fillStyle = 'rgba(130,175,235,.55)';
+  ctx.fillText('星空弹球 · 太空军校生', 240, 186);
+  ctx.letterSpacing = '0px';
+
+  // best score
+  ctx.font = '700 12px ui-monospace,Menlo,monospace';
+  ctx.fillStyle = 'rgba(255,212,94,.8)';
+  ctx.fillText('BEST  ' + state.best, 240, 218);
+
+  // modes
+  btn('mClassic', 74, 252, 332, 58, '经典模式', '3 球 · 任务晋升 9 级军衔',
+      {primary:true, accent:C.cyan, action:function(){ restart('classic'); }});
+
+  const dailyDone = PF.store.get('ps_daily_' + todayKey(), '');
+  btn('mDaily', 74, 322, 332, 58,
+      '每日挑战' + (dailyDone !== '' ? '  已挑战 ' + dailyDone : ''),
+      '90 秒限时 · 全服同榜',
+      {primary:true, accent:C.gold, action:function(){ restart('daily'); }});
+
+  btn('mBoard', 74, 392, 332, 52, '排行榜', '看看全服前 20',
+      {accent:C.violet, action:function(){ openBoard('classic'); }});
+
+  // controls hint
+  ctx.font = '600 9px ui-monospace,Menlo,monospace';
+  ctx.fillStyle = 'rgba(120,160,220,.42)';
+  ctx.fillText('←  →  或  按住屏幕左右半边  控制挡板', 240, 486);
+  ctx.fillText('空格 / 点击  发射       N  推桌（过度会 TILT）', 240, 506);
+  ctx.fillText('点右上角 SND 静音', 240, 526);
+
+  // demo footer
+  ctx.fillStyle = 'rgba(120,160,220,.35)';
+  ctx.font = '600 9px ui-monospace,Menlo,monospace';
+  ctx.fillText('DEMO BUILD · 成绩保存在本机排行榜', 240, 566);
+  ctx.restore();
+}
+
+function todayKey(){
+  const d = new Date();
+  return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+}
+
+function drawOverScreen(){
+  UI_DY = HEAD + 10;
+  ctx.save();
+  ctx.fillStyle = 'rgba(3,5,14,.90)';
+  ctx.fillRect(0, 0, CW, CH);
+  ctx.translate(0, UI_DY);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  ctx.font = '800 28px ui-monospace,Menlo,monospace';
+  ctx.letterSpacing = '4px';
+  ctx.shadowColor = C.magenta;
+  ctx.shadowBlur = 24;
+  ctx.fillStyle = '#ffd6f2';
+  ctx.fillText('RUN OVER', 240, 96);
+  ctx.shadowBlur = 0;
+  ctx.letterSpacing = '0px';
+
+  ctx.font = '600 9px ui-monospace,Menlo,monospace';
+  ctx.letterSpacing = '3px';
+  ctx.fillStyle = 'rgba(140,175,235,.6)';
+  ctx.fillText(state.gameMode === 'daily' ? 'DAILY CHALLENGE' : 'CLASSIC', 240, 126);
+  ctx.letterSpacing = '0px';
+
+  ctx.font = '700 40px ui-monospace,Menlo,monospace';
+  ctx.fillStyle = '#eaf5ff';
+  ctx.fillText(String(state.score), 240, 168);
+
+  // stat strip
+  const stats = [
+    ['军衔', RANKS[state.rank]],
+    ['任务', String(state.missionsDone)],
+    ['最高连击', String(state.comboBest)],
+    ['末球奖金', '+' + state.endBonus]
+  ];
+  for (let i = 0; i < stats.length; i++){
+    const x = 88 + i * 88, y = 214;
+    ctx.font = '600 8px ui-monospace,Menlo,monospace';
+    ctx.fillStyle = 'rgba(130,165,215,.5)';
+    ctx.fillText(stats[i][0], x, y);
+    ctx.font = '700 12px ui-monospace,Menlo,monospace';
+    ctx.fillStyle = i === 0 ? C.orange : '#dbe8ff';
+    ctx.fillText(stats[i][1], x, y + 15);
+  }
+
+  // buttons (demo build: no rewarded-video revive)
+  btn('oAgain', 74, 268, 332, 58, '再来一局', state.gameMode === 'daily' ? '再挑战一次 90 秒' : '3 球 · 冲更高分',
+      {primary:true, accent:C.cyan, action:function(){ restart(state.gameMode); }});
+  btn('oBoard', 74, 336, 160, 50, '排行榜', '', {accent:C.violet, action:function(){ openBoard(state.gameMode); }});
+  btn('oMenu', 246, 336, 160, 50, '主菜单', '', {accent:C.dim, action:function(){ state.screen = 'menu'; state.mode = 'over'; }});
+
+  ctx.font = '600 9px ui-monospace,Menlo,monospace';
+  ctx.fillStyle = 'rgba(120,160,220,.4)';
+  ctx.fillText('成绩已记录 · 分数计入排行榜', 240, 410);
+  ctx.restore();
+}
+
+function openBoard(mode){
+  state.boardMode = mode || 'classic';
+  state.screen = 'board';
+  state.board = null;
+  state.boardLoading = true;
+  PF.leaderboard.list(state.boardMode, function(rows){
+    state.board = rows || [];
+    state.boardLoading = false;
+  });
+}
+
+function drawBoard(){
+  UI_DY = HEAD + 10;
+  ctx.save();
+  ctx.fillStyle = 'rgba(3,5,14,.92)';
+  ctx.fillRect(0, 0, CW, CH);
+  ctx.translate(0, UI_DY);
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '800 20px ui-monospace,Menlo,monospace';
+  ctx.letterSpacing = '4px';
+  ctx.fillStyle = '#eaf4ff';
+  ctx.shadowColor = C.violet;
+  ctx.shadowBlur = 18;
+  ctx.fillText('LEADERBOARD', 240, 74);
+  ctx.shadowBlur = 0;
+  ctx.letterSpacing = '0px';
+
+  // mode tabs
+  const tabs = [['classic','经典'], ['daily','每日']];
+  for (let i = 0; i < tabs.length; i++){
+    const on = state.boardMode === tabs[i][0];
+    btn('tab' + i, 150 + i * 100, 100, 92, 34, tabs[i][1], '',
+        {accent: on ? C.gold : C.dim, primary: on,
+         action: function(m){ return function(){ openBoard(m); }; }(tabs[i][0])});
+  }
+
+  // rows
+  const rows = state.board;
+  ctx.textAlign = 'left';
+  if (state.boardLoading || rows === null){
+    ctx.textAlign = 'center';
+    ctx.font = '600 11px ui-monospace,Menlo,monospace';
+    ctx.fillStyle = 'rgba(150,180,225,.6)';
+    ctx.fillText('加载中…', 240, 300);
+  } else if (rows.length === 0){
+    ctx.textAlign = 'center';
+    ctx.font = '600 11px ui-monospace,Menlo,monospace';
+    ctx.fillStyle = 'rgba(150,180,225,.6)';
+    ctx.fillText('还没有成绩，去拿第一个', 240, 300);
+  } else {
+    for (let i = 0; i < Math.min(rows.length, 10); i++){
+      const r = rows[i];
+      const y = 158 + i * 38;
+      const me = (r.score === state.score);
+      ctx.save();
+      if (i < 3){
+        rr(56, y - 14, 368, 30, 8);
+        ctx.fillStyle = ['rgba(255,212,94,.14)','rgba(200,210,235,.10)','rgba(214,150,90,.10)'][i];
+        ctx.fill();
+      }
+      ctx.font = '700 13px ui-monospace,Menlo,monospace';
+      ctx.fillStyle = i < 3 ? [C.gold,'#ccd6e8','#d69660'][i] : 'rgba(150,180,225,.7)';
+      ctx.fillText(String(i + 1).padStart(2, '0'), 66, y);
+      ctx.font = '600 12px ui-monospace,Menlo,monospace';
+      ctx.fillStyle = me ? C.cyan : '#dbe8ff';
+      ctx.fillText(String(r.name || 'PLAYER').substring(0, 10), 108, y);
+      ctx.textAlign = 'right';
+      ctx.font = '700 13px ui-monospace,Menlo,monospace';
+      ctx.fillStyle = me ? C.cyan : '#eaf4ff';
+      ctx.fillText(String(r.score), 414, y);
+      ctx.textAlign = 'left';
+      ctx.restore();
+    }
+  }
+
+  btn('bBack', 140, 500, 200, 46, '返回', '', {accent:C.cyan,
+    action:function(){
+      if (state.mode === 'over') state.screen = 'over';
+      else { state.screen = 'menu'; state.mode = 'over'; }
+    }});
+  ctx.restore();
+}
+
+function drawOverlays(){
+  if (state.mode === 'ready' && state.screen === 'play'){
+    const pulse = 0.55 + 0.45 * Math.sin(state.time * 5);
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    const pw = 168, ph = 34, px = 240 - pw / 2, py = 660;
+    ctx.globalAlpha = 0.25 + pulse * 0.35;
+    rr(px, py, pw, ph, 17);
+    ctx.fillStyle = 'rgba(8,14,34,.9)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(110,200,255,' + (0.35 + pulse * 0.45) + ')';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    ctx.globalAlpha = 0.6 + pulse * 0.4;
+    ctx.font = '700 12px ui-monospace,Menlo,monospace';
+    ctx.letterSpacing = '1.5px';
+    ctx.fillStyle = 'rgba(175,220,255,' + (0.6 + pulse * 0.4) + ')';
+    ctx.fillText('空格 / 点击 发射', 241, py + ph / 2 + 1);
+    ctx.letterSpacing = '0px';
+    ctx.restore();
+  }
+
+  if (state.banner){
+    const t = state.banner.t;
+    const k = Math.min(1, (2.2 - t) * 5);
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, t * 2.0)) * Math.max(0.2, k);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '800 27px ui-monospace,Menlo,monospace';
+    ctx.shadowColor = C.gold;
+    ctx.shadowBlur = 30;
+    ctx.fillStyle = '#fff3c9';
+    ctx.fillText(state.banner.text, 240, 430);
+    ctx.shadowBlur = 0;
+    ctx.font = '600 12px ui-monospace,Menlo,monospace';
+    ctx.fillStyle = C.gold;
+    ctx.letterSpacing = '2px';
+    ctx.fillText(state.banner.sub, 240, 460);
+    ctx.letterSpacing = '0px';
+    ctx.restore();
+  }
+
+  // the run-over panel is a full screen (see drawOverScreen), drawn by render()
+}
+
+/* ---------------------------- render ---------------------------- */
+function render(){
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.clearRect(0, 0, CW, CH);
+  state.btnRects.length = 0;      // hit areas are rebuilt every frame
+
+  drawBackground();
+
+  ctx.save();
+  const sh = state.shake;
+  if (sh > 0.4){
+    ctx.translate((Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh);
+  }
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, HEAD, W, H);
+  ctx.clip();
+  ctx.translate(0, HEAD);
+
+  drawPlayfieldDeco();
+  drawDrainZone();
+  drawPlunger();
+  drawWalls();
+  drawRankRing();
+  drawWorms();
+  drawFuelLights();
+  drawSlings();
+  drawPosts();
+  drawLaneLamps();
+  drawMissionTargets();
+  drawBumpers();
+  drawFlippers();
+  drawBalls();
+
+  for (let i = 0; i < parts.length; i++){
+    const p = parts[i];
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle = p.c;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * p.life, 0, 6.2832);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i < pops.length; i++){
+    const p = pops[i];
+    ctx.globalAlpha = Math.max(0, Math.min(1, p.life * 1.4));
+    ctx.fillStyle = p.c;
+    ctx.font = '700 13px ui-monospace,Menlo,monospace';
+    ctx.fillText(p.text, p.x, p.y);
+  }
+  ctx.globalAlpha = 1;
+
+  drawOverlays();
+
+  if (state.flash > 0){
+    ctx.fillStyle = 'rgba(255,225,150,' + (state.flash * 0.22) + ')';
+    ctx.fillRect(0, 0, CW, CH);
+  }
+
+  const vg = ctx.createRadialGradient(240, 400, 200, 240, 400, 520);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,.45)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, CW, CH);
+
+  ctx.restore();
+  ctx.restore();
+
+  // Full-screen states replace the whole cabinet. They are authored in canvas space
+// (0..CW, 0..CH) — NOT offset by HEAD — so the backdrop covers the backglass too.
+  if (state.screen === 'menu' || state.screen === 'board' || state.screen === 'over'){
+    ctx.save();
+    if (state.screen === 'menu') drawMenu();
+    else if (state.screen === 'board') drawBoard();
+    else drawOverScreen();
+    ctx.restore();
+  } else {
+    drawBackglass();
+  }
+
+  ctx.save();
+  rr(0.5, 0.5, CW - 1, CH - 1, 14);
+  ctx.strokeStyle = 'rgba(110,160,255,.25)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+}
+
+/* ---------------------------- loop ---------------------------- */
+const STEP = 1 / 240;
+let last = performance.now();
+let acc = 0;
+
+function loop(now){
+  requestAnimationFrame(loop);
+  let dt = (now - last) / 1000;
+  last = now;
+  if (dt > 0.1) dt = 0.1;
+  acc += dt;
+  let guard = 0;
+  while (acc >= STEP && guard < 60){
+    update(STEP);
+    acc -= STEP;
+    guard++;
+  }
+  if (guard >= 60) acc = 0;
+  render();
+}
+
+/* ---------------------------- input ---------------------------- */
+function setFlipper(f, down){
+  if (state.tilt > 0) return;
+  if (f.pressed !== down){ f.pressed = down; if (down) sfx.flip(); }
+}
+
+function onKey(e, down){
+  const k = e.key.toLowerCase();
+
+  // screens with buttons: arrows move the selection, space activates
+  if (state.screen === 'menu' || state.screen === 'over' || state.screen === 'board'){
+    if (down && (k === ' ' || k === 'spacebar' || k === 'enter')){ primary(); e.preventDefault(); }
+    if (down && (k === 'escape' || k === 'backspace')){
+      if (state.screen !== 'menu'){ state.screen = state.mode === 'over' ? 'over' : 'menu'; }
+      e.preventDefault();
+    }
+    return;
+  }
+
+  if (k === 'arrowleft' || k === 'a'){
+    setFlipper(leftF, down);
+    e.preventDefault();
+  } else if (k === 'arrowright' || k === 'd'){
+    setFlipper(rightF, down);
+    e.preventDefault();
+  } else if (k === ' ' || k === 'spacebar' || k === 'enter'){
+    if (down) primary();
+    e.preventDefault();
+  } else if (k === 'n' && down){
+    nudge(-1);
+  } else if (k === 'm' && down){
+    state.muted = !state.muted;
+  } else if (k === 'r' && down){
+    restart(state.gameMode);
+  }
+}
+window.addEventListener('keydown', function(e){
+  if (!e.repeat) onKey(e, true);
+  else if (e.key === ' ' || e.key.startsWith('Arrow')) e.preventDefault();
+});
+window.addEventListener('keyup', function(e){ onKey(e, false); });
+
+const pointerSide = new Map();
+function pointerDown(e){
+  e.preventDefault();
+  ac();
+  const r = cv.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width * CW;
+  const y = (e.clientY - r.top) / r.height * CH;
+
+  /* Buttons first: in menu / over / board the whole canvas is a UI surface. Button
+     rects are in canvas coords already (the screens are drawn with a HEAD offset). */
+  if (state.screen === 'menu' || state.screen === 'over' || state.screen === 'board'){
+    const hit = hitButton(x, y);   // btnRects already hold absolute canvas coords
+    if (hit){ ac(); hit.action(); return; }
+    if (state.screen === 'board') return;
+    return;
+  }
+
+  if (y < HEAD){
+    if (x > W - 74 && y < 90) state.muted = !state.muted;
+    return;
+  }
+
+  if (state.mode === 'ready') { primary(); return; }
+  const side = x < CW / 2 ? 'L' : 'R';
+  pointerSide.set(e.pointerId, side);
+  if (side === 'L') setFlipper(leftF, true); else setFlipper(rightF, true);
+}
+
+function hitButton(x, y){
+  for (let i = 0; i < state.btnRects.length; i++){
+    const b = state.btnRects[i];
+    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b;
+  }
+  return null;
+}
+function pointerUp(e){
+  const side = pointerSide.get(e.pointerId);
+  if (!side) return;
+  pointerSide.delete(e.pointerId);
+  let stillL = false, stillR = false;
+  pointerSide.forEach(function(v){ if (v === 'L') stillL = true; else stillR = true; });
+  if (!stillL) leftF.pressed = false;
+  if (!stillR) rightF.pressed = false;
+}
+cv.addEventListener('pointerdown', pointerDown, {passive:false});
+cv.addEventListener('pointerup', pointerUp);
+cv.addEventListener('pointercancel', pointerUp);
+cv.addEventListener('pointerleave', pointerUp);
+window.addEventListener('contextmenu', function(e){ if (e.target === cv) e.preventDefault(); });
+
+window.addEventListener('pointerdown', ac, {once:true});
+window.addEventListener('keydown', ac, {once:true});
+
+/* boot: open on the menu; the table only starts when a mode is chosen */
+PF.init({ adUnitId: (typeof window !== 'undefined' && window.PS_AD_UNIT) || '' });
+state.screen = 'menu';
+state.mode = 'over';
+resetBall();
+
+requestAnimationFrame(loop);
+
+/* debug hook for automated verification */
+window.__PS = {
+  state: state, balls: balls, leftF: leftF, rightF: rightF,
+  PF: PF,
+  BUMPERS: BUMPERS, POSTS: POSTS, SLINGS: SLINGS, WALLS: WALLS,
+  MISSION_TARGETS: MISSION_TARGETS, WORMS: WORMS, RING_POS: RING_POS,
+  FUEL_POS: FUEL_POS, GATE: GATE, RANKS: RANKS, MISSIONS: MISSIONS,
+  launch: launch, restart: restart, update: update, primary: primary,
+  ballLost: ballLost, addScore: addScore, spawnBall: spawnBall,
+  selectMission: selectMission, startMission: startMission,
+  missionSlots: missionSlots, completeMission: completeMission,
+  promote: promote, nudge: nudge, enterWorm: enterWorm,
+  setFlipper: setFlipper,
+  // Space Cadet mechanics
+  stageNow: stageNow, advanceStage: advanceStage, missionProgress: missionProgress,
+  hitLane: hitLane, grantReplay: grantReplay, startMultiball: startMultiball,
+  LANE_LAMPS: LANE_LAMPS,
+  // competition layer
+  endRun: endRun, revive: revive, requestRevive: requestRevive,
+  submitScore: submitScore, openBoard: openBoard, hitButton: hitButton
+};
+
+})();
+</script>
+</body>
+</html>
